@@ -204,6 +204,26 @@ h2 {
   line-height: 1.35;
 }
 
+#goalProgress {
+  display: grid;
+  gap: 5px;
+}
+
+#goalProgress .goal-title {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+#goalProgress .goal-value {
+  display: block;
+  font-size: clamp(1.1rem, 5vw, 1.48rem);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
 .stats small,
 .review-dashboard small,
 .panel-head p,
@@ -496,7 +516,10 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 14px;
-  flex-wrap: nowrap;
+}
+
+.review-actions #revealAnswer {
+  grid-column: 1 / -1;
 }
 
 .review-actions .secondary-button,

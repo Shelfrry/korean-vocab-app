@@ -5,6 +5,7 @@ const CLOUD_URL_KEY = "korean-vocab-supabase-url";
 const CLOUD_ANON_KEY = "korean-vocab-supabase-anon";
 const LAST_SYNC_KEY = "korean-vocab-v2-last-sync-at";
 const SUPABASE_V2_TABLE = "korean_vocab_words_v2";
+const SUPABASE_LEGACY_TABLE = "vocab_cards";
 const DAY = 24 * 60 * 60 * 1000;
 const MINUTE = 60 * 1000;
 const DAILY_GOAL = 10;
@@ -61,6 +62,7 @@ const els = {
   signOutButton: $("#signOutButton"),
   pullCloudButton: $("#pullCloudButton"),
   pushCloudButton: $("#pushCloudButton"),
+  importLegacyButton: $("#importLegacyButton"),
   syncStatus: $("#syncStatus"),
   tabButtons: document.querySelectorAll(".tab-button"),
   tabViews: document.querySelectorAll(".tab-view"),
@@ -88,6 +90,7 @@ els.refreshSessionButton.addEventListener("click", refreshSession);
 els.signOutButton.addEventListener("click", signOut);
 els.pullCloudButton.addEventListener("click", restoreFromCloudV2);
 els.pushCloudButton.addEventListener("click", syncToCloudV2);
+els.importLegacyButton.addEventListener("click", importLegacyToV2);
 els.tabButtons.forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
 });
@@ -157,18 +160,14 @@ function renderStats() {
   const allCards = state.words.flatMap((word) => word.reviewCards || []);
   const allDueCount = allCards.filter((card) => new Date(card.dueDate).getTime() <= Date.now()).length;
   const doneToday = allCards.filter((card) => String(card.lastReviewedAt || "").startsWith(todayKey())).length;
-  const learningCount = allCards.filter((card) => card.stage === "learning").length;
-  const reviewCount = allCards.filter((card) => card.stage === "review").length;
   const mastered = state.words.filter((word) => word.mastered).length;
 
   els.totalCount.textContent = state.words.length;
   els.dueCount.textContent = allDueCount;
   els.doneCount.textContent = doneToday;
   els.goalProgress.innerHTML = `
-    <span class="stat-mini-value">${Math.min(doneToday, DAILY_GOAL)}/${DAILY_GOAL}</span>
-    <span class="stat-mini-line">词库 ${state.words.length}</span>
-    <span class="stat-mini-line">learning ${learningCount}</span>
-    <span class="stat-mini-line">review ${reviewCount}</span>
+    <small class="goal-title">词库总数</small>
+    <span class="goal-value">${state.words.length}</span>
   `;
   els.masteredCount.textContent = mastered;
 }
@@ -737,6 +736,87 @@ async function restoreFromCloudV2() {
   toast("已从云端 v2 恢复到本地");
 }
 
+async function importLegacyToV2() {
+  if (!ensureCloudUser()) return;
+  if (
+    !window.confirm(
+      "这会读取旧表 vocab_cards，并把旧词条复制到新版云端 v2。旧表不会被删除或修改，是否继续？",
+    )
+  ) {
+    return;
+  }
+
+  setSyncing(true, "正在读取旧词库...");
+  const { data: legacyRows, error: legacyError } = await state.supabase
+    .from(SUPABASE_LEGACY_TABLE)
+    .select("*")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  if (legacyError) {
+    setSyncing(false, `读取旧词库失败：${legacyError.message}`);
+    return;
+  }
+
+  if (!legacyRows?.length) {
+    setSyncing(false);
+    updateCloudStatus("旧词库里没有可导入的词");
+    toast("旧词库里没有可导入的词");
+    return;
+  }
+
+  const { data: existingRows, error: existingError } = await state.supabase
+    .from(SUPABASE_V2_TABLE)
+    .select("id,korean")
+    .is("deleted_at", null);
+
+  if (existingError) {
+    setSyncing(false, `检查新版词库失败：${existingError.message}`);
+    return;
+  }
+
+  const existingKorean = new Set([
+    ...(existingRows || []).map((row) => normalizeKoreanKey(row.korean)),
+    ...state.words.map((word) => normalizeKoreanKey(word.korean)),
+  ]);
+  const rowsToImport = legacyRows
+    .filter((row) => {
+      const koreanKey = normalizeKoreanKey(row.word);
+      if (!koreanKey || existingKorean.has(koreanKey)) return false;
+      existingKorean.add(koreanKey);
+      return true;
+    })
+    .map((row) => legacyRowToDbWord(row, state.user.id));
+
+  if (rowsToImport.length === 0) {
+    setSyncing(false);
+    updateCloudStatus("旧词库已在 v2 中存在，没有新增导入");
+    toast("没有需要新增导入的旧词");
+    return;
+  }
+
+  setSyncing(true, `正在导入 ${rowsToImport.length} 个旧词到 v2...`);
+  const { error: importError } = await state.supabase
+    .from(SUPABASE_V2_TABLE)
+    .upsert(rowsToImport, { onConflict: "id" });
+
+  if (importError) {
+    setSyncing(false, `导入失败：${importError.message}`);
+    return;
+  }
+
+  const syncedAt = nowIso();
+  state.words = normalizeWords([...state.words, ...rowsToImport.map(fromDbWord)]);
+  persist();
+  state.revealed = false;
+  state.currentIndex = 0;
+  renderAll();
+  localStorage.setItem(LAST_SYNC_KEY, syncedAt);
+  setSyncing(false);
+  updateCloudStatus(`已导入旧词库到 v2：新增 ${rowsToImport.length} 个，跳过 ${legacyRows.length - rowsToImport.length} 个`);
+  toast(`已导入 ${rowsToImport.length} 个旧词到 v2`);
+}
+
 function toDbWord(word, userId) {
   const createdAt = word.createdAt || nowIso();
   const updatedAt = word.updatedAt || createdAt;
@@ -762,6 +842,48 @@ function toDbWord(word, userId) {
   };
 }
 
+function legacyRowToDbWord(row, userId) {
+  const createdAt = row.created_at || nowIso();
+  const updatedAt = nowIso();
+  const korean = row.word || "";
+  return {
+    id: row.id || crypto.randomUUID(),
+    user_id: userId,
+    korean,
+    base_form: korean,
+    meaning: row.meaning || "",
+    part_of_speech: row.pos || "",
+    example_ko: "",
+    example_zh: "",
+    pronunciation: row.pronunciation || "",
+    forms: row.forms || "",
+    confusion: "",
+    source: "旧词库导入",
+    notes: row.note || "",
+    mastered: false,
+    review_cards: [createLegacyKoToZhCard(row)],
+    created_at: createdAt,
+    updated_at: updatedAt,
+    deleted_at: null,
+  };
+}
+
+function createLegacyKoToZhCard(row) {
+  return {
+    cardId: crypto.randomUUID(),
+    direction: "ko_to_zh",
+    stage: "learning",
+    dueDate: legacyDueDateToIso(row.next_review),
+    intervalDays: 0,
+    reviewCount: Array.isArray(row.history) ? row.history.length : 0,
+    correctStreak: 0,
+    wrongCount: 0,
+    lastResult: "",
+    lastReviewedAt: "",
+    reviewHistory: [],
+  };
+}
+
 function fromDbWord(row) {
   return {
     id: row.id,
@@ -781,6 +903,16 @@ function fromDbWord(row) {
     createdAt: row.created_at || nowIso(),
     updatedAt: row.updated_at || row.created_at || nowIso(),
   };
+}
+
+function legacyDueDateToIso(value) {
+  if (!value) return nowIso();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? nowIso() : parsed.toISOString();
+}
+
+function normalizeKoreanKey(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function ensureCloudUser() {
@@ -818,6 +950,7 @@ function updateCloudStatus(message) {
   els.signOutButton.disabled = !state.user || state.syncing;
   els.pullCloudButton.disabled = !canUseCloud;
   els.pushCloudButton.disabled = !canUseCloud;
+  els.importLegacyButton.disabled = !canUseCloud;
 }
 
 function cleanCurrentUrl() {

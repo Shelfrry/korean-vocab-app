@@ -1,18 +1,24 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const STORAGE_KEY = "korean-vocab-cards";
+const STORAGE_KEY = "korean-vocab-v2";
 const CLOUD_URL_KEY = "korean-vocab-supabase-url";
 const CLOUD_ANON_KEY = "korean-vocab-supabase-anon";
+const LAST_SYNC_KEY = "korean-vocab-v2-last-sync-at";
+const SUPABASE_V2_TABLE = "korean_vocab_words_v2";
 const DAY = 24 * 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+const DAILY_GOAL = 10;
 
 const $ = (selector) => document.querySelector(selector);
+const nowIso = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
-const daysFromNow = (days) => new Date(Date.now() + days * DAY).toISOString().slice(0, 10);
+const minutesFromNow = (minutes) => new Date(Date.now() + minutes * MINUTE).toISOString();
+const daysFromNow = (days) => new Date(Date.now() + days * DAY).toISOString();
 
 const state = {
-  cards: loadCards(),
-  reviewQueue: [],
-  currentId: null,
+  words: loadWords(),
+  dueCards: [],
+  currentIndex: 0,
   revealed: false,
   filter: "",
   supabase: null,
@@ -24,6 +30,8 @@ const state = {
 const els = {
   totalCount: $("#totalCount"),
   dueCount: $("#dueCount"),
+  doneCount: $("#doneCount"),
+  goalProgress: $("#goalProgress"),
   masteredCount: $("#masteredCount"),
   wordForm: $("#wordForm"),
   wordInput: $("#wordInput"),
@@ -34,11 +42,12 @@ const els = {
   formsInput: $("#formsInput"),
   reviewCard: $("#reviewCard"),
   reviewSubhead: $("#reviewSubhead"),
-  shuffleReview: $("#shuffleReview"),
+  nextReview: $("#nextReview"),
   revealAnswer: $("#revealAnswer"),
-  againButton: $("#againButton"),
-  hardButton: $("#hardButton"),
-  goodButton: $("#goodButton"),
+  forgotButton: $("#forgotButton"),
+  fuzzyButton: $("#fuzzyButton"),
+  knownButton: $("#knownButton"),
+  easyButton: $("#easyButton"),
   filterInput: $("#filterInput"),
   exportButton: $("#exportButton"),
   importInput: $("#importInput"),
@@ -53,6 +62,8 @@ const els = {
   pullCloudButton: $("#pullCloudButton"),
   pushCloudButton: $("#pushCloudButton"),
   syncStatus: $("#syncStatus"),
+  tabButtons: document.querySelectorAll(".tab-button"),
+  tabViews: document.querySelectorAll(".tab-view"),
 };
 
 els.supabaseUrlInput.value = localStorage.getItem(CLOUD_URL_KEY) || "";
@@ -60,178 +71,284 @@ els.supabaseAnonInput.value = localStorage.getItem(CLOUD_ANON_KEY) || "";
 
 els.wordForm.addEventListener("submit", saveWordFromForm);
 els.revealAnswer.addEventListener("click", revealCurrent);
-els.againButton.addEventListener("click", () => gradeCurrent("again"));
-els.hardButton.addEventListener("click", () => gradeCurrent("hard"));
-els.goodButton.addEventListener("click", () => gradeCurrent("good"));
-els.shuffleReview.addEventListener("click", nextReviewCard);
+els.forgotButton.addEventListener("click", () => reviewCurrent("forgot"));
+els.fuzzyButton.addEventListener("click", () => reviewCurrent("fuzzy"));
+els.knownButton.addEventListener("click", () => reviewCurrent("known"));
+els.easyButton.addEventListener("click", () => reviewCurrent("easy"));
+els.nextReview.addEventListener("click", nextReviewCard);
 els.filterInput.addEventListener("input", (event) => {
   state.filter = event.target.value.trim().toLowerCase();
   renderLibrary();
 });
-els.exportButton.addEventListener("click", exportCards);
-els.importInput.addEventListener("change", importCards);
+els.exportButton.addEventListener("click", exportWords);
+els.importInput.addEventListener("change", importWords);
 els.saveCloudConfig.addEventListener("click", saveCloudConfig);
 els.sendLoginLink.addEventListener("click", sendLoginLink);
 els.refreshSessionButton.addEventListener("click", refreshSession);
 els.signOutButton.addEventListener("click", signOut);
-els.pullCloudButton.addEventListener("click", pullCloudCards);
-els.pushCloudButton.addEventListener("click", pushCloudCards);
+els.pullCloudButton.addEventListener("click", restoreFromCloudV2);
+els.pushCloudButton.addEventListener("click", syncToCloudV2);
+els.tabButtons.forEach((button) => {
+  button.addEventListener("click", () => switchTab(button.dataset.tab));
+});
 
 renderAll();
 initCloud();
 
-function loadCards() {
+function loadWords() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    return Array.isArray(parsed) ? normalizeWords(parsed) : [];
   } catch {
     return [];
   }
 }
 
+function normalizeWords(words) {
+  let changed = false;
+  const normalized = words.map((word) => {
+    if (typeof word.mastered !== "boolean") {
+      word.mastered = false;
+      changed = true;
+    }
+    (word.reviewCards || []).forEach((card) => {
+      if (!Array.isArray(card.reviewHistory)) {
+        card.reviewHistory = [];
+        changed = true;
+      }
+    });
+    return word;
+  });
+  if (changed) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  }
+  return normalized;
+}
+
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cards));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.words));
 }
 
 function renderAll() {
-  rebuildReviewQueue();
+  rebuildDueCards();
   renderStats();
   renderReview();
   renderLibrary();
 }
 
+function rebuildDueCards() {
+  const now = Date.now();
+  state.dueCards = state.words
+    .flatMap((word) => {
+      return (word.reviewCards || []).map((card) => ({ word, card }));
+    })
+    .filter(({ card }) => new Date(card.dueDate).getTime() <= now)
+    .sort((left, right) => {
+      return new Date(left.card.dueDate).getTime() - new Date(right.card.dueDate).getTime();
+    })
+    .slice(0, DAILY_GOAL);
+
+  if (state.currentIndex >= state.dueCards.length) {
+    state.currentIndex = 0;
+  }
+}
+
 function renderStats() {
-  const due = state.cards.filter((card) => card.nextReview <= todayKey()).length;
-  const mastered = state.cards.filter((card) => card.box >= 5).length;
-  els.totalCount.textContent = state.cards.length;
-  els.dueCount.textContent = due;
+  const allCards = state.words.flatMap((word) => word.reviewCards || []);
+  const allDueCount = allCards.filter((card) => new Date(card.dueDate).getTime() <= Date.now()).length;
+  const doneToday = allCards.filter((card) => String(card.lastReviewedAt || "").startsWith(todayKey())).length;
+  const learningCount = allCards.filter((card) => card.stage === "learning").length;
+  const reviewCount = allCards.filter((card) => card.stage === "review").length;
+  const mastered = state.words.filter((word) => word.mastered).length;
+
+  els.totalCount.textContent = state.words.length;
+  els.dueCount.textContent = allDueCount;
+  els.doneCount.textContent = doneToday;
+  els.goalProgress.innerHTML = `
+    <span class="stat-mini-value">${Math.min(doneToday, DAILY_GOAL)}/${DAILY_GOAL}</span>
+    <span class="stat-mini-line">词库 ${state.words.length}</span>
+    <span class="stat-mini-line">learning ${learningCount}</span>
+    <span class="stat-mini-line">review ${reviewCount}</span>
+  `;
   els.masteredCount.textContent = mastered;
 }
 
-function rebuildReviewQueue() {
-  state.reviewQueue = state.cards
-    .filter((card) => card.nextReview <= todayKey())
-    .sort((a, b) => a.nextReview.localeCompare(b.nextReview) || a.createdAt.localeCompare(b.createdAt))
-    .map((card) => card.id);
-
-  if (state.currentId && !state.reviewQueue.includes(state.currentId)) {
-    state.currentId = null;
-  }
-  if (!state.currentId && state.reviewQueue.length > 0) {
-    state.currentId = state.reviewQueue[0];
-  }
-}
-
 function renderReview() {
-  const card = currentCard();
-  const dueCount = state.reviewQueue.length;
-  els.reviewSubhead.textContent = dueCount ? `今天还有 ${dueCount} 张卡片。` : "还没有到期卡片时，可以先录入几个新词。";
+  const entry = state.dueCards[state.currentIndex];
+  const dueCount = state.dueCards.length;
+  els.reviewSubhead.textContent = dueCount
+    ? `今天默认显示 ${dueCount} 张到期卡片。`
+    : "还没有到期卡片时，可以先录入几个新词。";
 
-  if (!card) {
+  if (!entry) {
     els.reviewCard.className = "review-card empty";
-    els.reviewCard.innerHTML = `<p class="empty-title">今天的卡片会出现在这里</p><p>单词先出现，点“显示答案”后再判断熟练度。</p>`;
+    els.reviewCard.innerHTML = `<p class="empty-title">今天没有到期卡片。</p><p>可以去录入页添加新词，或等待下一次复习。</p>`;
     setReviewButtons(false);
     return;
   }
 
+  const { word, card } = entry;
+  const isZhToKo = card.direction === "zh_to_ko";
+  const directionLabel = isZhToKo ? "中 → 韩" : "韩 → 中";
+  const front = isZhToKo
+    ? `<div class="card-meaning">${lineBreaks(word.meaning || "还没有中文释义")}</div>`
+    : `<div class="card-word" lang="ko">${escapeHtml(word.korean)}</div>`;
+  const answer = isZhToKo ? renderZhToKoAnswer(word) : renderKoToZhAnswer(word);
+
   els.reviewCard.className = "review-card";
   els.reviewCard.innerHTML = `
     <div>
-      <div class="card-word" lang="ko">${escapeHtml(card.word)}</div>
-      ${card.pronunciation ? `<div class="card-pronunciation">[${escapeHtml(card.pronunciation)}]</div>` : ""}
-      <p class="card-schedule">第 ${card.box} 阶段 · 下次复习：${escapeHtml(card.nextReview)}</p>
+      <div class="answer-label">${directionLabel}</div>
+      ${front}
+      ${word.pronunciation ? `<div class="card-pronunciation">[${escapeHtml(word.pronunciation)}]</div>` : ""}
+      <p class="card-schedule">${escapeHtml(card.stage)} · 已复习 ${card.reviewCount} 次 · streak ${card.correctStreak}</p>
     </div>
     <div class="card-answer" ${state.revealed ? "" : "hidden"}>
-      <div>
-        <div class="answer-label">中文释义</div>
-        <p>${lineBreaks(card.meaning || "还没有释义")}</p>
-      </div>
-      ${card.forms ? `<div><div class="answer-label">变形 / 派生</div><p lang="ko">${lineBreaks(card.forms)}</p></div>` : ""}
-      ${card.note ? `<div><div class="answer-label">我的笔记</div><p>${lineBreaks(card.note)}</p></div>` : ""}
+      ${answer}
     </div>
   `;
   setReviewButtons(true);
 }
 
+function renderKoToZhAnswer(word) {
+  return `
+    <div>
+      <div class="answer-label">韩语词条</div>
+      <p lang="ko">${escapeHtml(word.korean)}</p>
+    </div>
+    <div>
+      <div class="answer-label">中文释义</div>
+      <p>${lineBreaks(word.meaning || "还没有释义")}</p>
+    </div>
+    ${word.partOfSpeech ? `<div><div class="answer-label">词性</div><p>${escapeHtml(word.partOfSpeech)}</p></div>` : ""}
+    ${word.forms ? `<div><div class="answer-label">变形 / 派生</div><p lang="ko">${lineBreaks(word.forms)}</p></div>` : ""}
+  `;
+}
+
+function renderZhToKoAnswer(word) {
+  return `
+    <div>
+      <div class="answer-label">韩语词条</div>
+      <p lang="ko">${escapeHtml(word.korean)}</p>
+    </div>
+    ${word.baseForm ? `<div><div class="answer-label">原形</div><p lang="ko">${escapeHtml(word.baseForm)}</p></div>` : ""}
+    ${word.exampleKo ? `<div><div class="answer-label">韩语原句</div><p lang="ko">${lineBreaks(word.exampleKo)}</p></div>` : ""}
+    ${word.forms ? `<div><div class="answer-label">变形 / 派生</div><p lang="ko">${lineBreaks(word.forms)}</p></div>` : ""}
+    ${word.confusion ? `<div><div class="answer-label">易混点</div><p>${lineBreaks(word.confusion)}</p></div>` : ""}
+    ${word.notes ? `<div><div class="answer-label">备注</div><p>${lineBreaks(word.notes)}</p></div>` : ""}
+  `;
+}
+
 function setReviewButtons(hasCard) {
   els.revealAnswer.disabled = !hasCard;
-  els.againButton.disabled = !hasCard || !state.revealed;
-  els.hardButton.disabled = !hasCard || !state.revealed;
-  els.goodButton.disabled = !hasCard || !state.revealed;
+  els.forgotButton.disabled = !hasCard || !state.revealed;
+  els.fuzzyButton.disabled = !hasCard || !state.revealed;
+  els.knownButton.disabled = !hasCard || !state.revealed;
+  els.easyButton.disabled = !hasCard || !state.revealed;
 }
 
 function renderLibrary() {
-  const cards = state.cards
-    .filter((card) => {
-      const haystack = [card.word, card.meaning, card.note, card.pos, card.forms].join(" ").toLowerCase();
+  const words = state.words
+    .filter((word) => {
+      const haystack = [
+        word.korean,
+        word.meaning,
+        word.notes,
+        word.partOfSpeech,
+        word.forms,
+        word.pronunciation,
+      ].join(" ").toLowerCase();
       return !state.filter || haystack.includes(state.filter);
     })
-    .sort((a, b) => a.nextReview.localeCompare(b.nextReview) || b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
-  if (cards.length === 0) {
+  if (words.length === 0) {
     els.wordList.innerHTML = `<p class="word-text">词库暂时是空的。先录入一个今天新学的词吧。</p>`;
     return;
   }
 
-  els.wordList.innerHTML = cards.map((card) => `
-    <article class="word-item" data-id="${card.id}">
-      <div class="word-title-row">
-        <strong lang="ko">${escapeHtml(card.word)}</strong>
-        <span class="word-meta">${escapeHtml(card.pos || "未标注")}</span>
-      </div>
-      <p class="word-text">${escapeHtml(firstLine(card.meaning) || "无释义")}</p>
-      <p class="word-meta">阶段 ${card.box} · 下次 ${escapeHtml(card.nextReview)}</p>
-      <div class="word-actions">
-        <button class="tiny-button" data-action="speak">朗读</button>
-        <button class="tiny-button" data-action="edit">编辑</button>
-        <button class="tiny-button" data-action="delete">删除</button>
-      </div>
-    </article>
-  `).join("");
+  els.wordList.innerHTML = words.map((word) => {
+    const card = word.reviewCards?.[0];
+    return `
+      <article class="word-item" data-id="${word.id}">
+        <div class="word-title-row">
+          <strong lang="ko">${escapeHtml(word.korean)}</strong>
+          <span class="word-meta">${escapeHtml(word.partOfSpeech || "未标注")}</span>
+        </div>
+        <p class="word-text">${escapeHtml(firstLine(word.meaning) || "无释义")}</p>
+        <p class="word-meta">${escapeHtml(card?.stage || "learning")} · 下次 ${formatDue(card?.dueDate)}</p>
+        <div class="word-actions">
+          <button class="tiny-button" data-action="speak">朗读</button>
+          <button class="tiny-button" data-action="edit">编辑</button>
+          <button class="tiny-button" data-action="delete">删除</button>
+        </div>
+      </article>
+    `;
+  }).join("");
 
   els.wordList.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", handleCardAction);
+    button.addEventListener("click", handleWordAction);
   });
 }
 
 function saveWordFromForm(event) {
   event.preventDefault();
-  const word = els.wordInput.value.trim();
-  if (!word) return;
+  const korean = els.wordInput.value.trim();
+  if (!korean) return;
 
-  const existing = state.cards.find((card) => card.word === word);
+  const existing = state.words.find((word) => word.korean === korean);
   const payload = {
-    word,
+    korean,
+    baseForm: korean,
     meaning: els.meaningInput.value.trim(),
-    note: els.noteInput.value.trim(),
-    pos: els.posInput.value.trim(),
+    partOfSpeech: els.posInput.value.trim(),
+    exampleKo: "",
+    exampleZh: "",
     pronunciation: els.pronunciationInput.value.trim(),
     forms: els.formsInput.value.trim(),
-    updatedAt: new Date().toISOString(),
+    confusion: "",
+    source: "",
+    notes: els.noteInput.value.trim(),
   };
 
   if (existing) {
     Object.assign(existing, payload);
+    existing.mastered = Boolean(existing.mastered);
+    existing.updatedAt = nowIso();
     toast("已更新这个词");
   } else {
-    state.cards.push({
+    const createdAt = nowIso();
+    state.words.push({
       id: crypto.randomUUID(),
       ...payload,
-      box: 1,
-      nextReview: todayKey(),
-      createdAt: new Date().toISOString(),
-      history: [],
+      mastered: false,
+      createdAt,
+      updatedAt: createdAt,
+      reviewCards: [createKoToZhCard()],
     });
-    toast("已加入今日复习");
+    toast("已保存，已加入今日复习。");
   }
 
   persist();
   els.wordForm.reset();
+  state.revealed = false;
   renderAll();
-  syncCard(existing || state.cards.find((card) => card.word === word));
 }
 
-function currentCard() {
-  return state.cards.find((card) => card.id === state.currentId);
+function createKoToZhCard() {
+  return {
+    cardId: crypto.randomUUID(),
+    direction: "ko_to_zh",
+    stage: "learning",
+    dueDate: nowIso(),
+    intervalDays: 0,
+    reviewCount: 0,
+    correctStreak: 0,
+    wrongCount: 0,
+    lastResult: "",
+    lastReviewedAt: "",
+    reviewHistory: [],
+  };
 }
 
 function revealCurrent() {
@@ -239,52 +356,176 @@ function revealCurrent() {
   renderReview();
 }
 
-function gradeCurrent(grade) {
-  const card = currentCard();
-  if (!card) return;
+function reviewCurrent(result) {
+  const entry = state.dueCards[state.currentIndex];
+  if (!entry) return;
 
-  const oldBox = card.box;
-  if (grade === "again") {
-    card.box = 1;
-    card.nextReview = daysFromNow(1);
-  }
-  if (grade === "hard") {
-    card.box = Math.max(1, card.box);
-    card.nextReview = daysFromNow(Math.max(1, card.box));
-  }
-  if (grade === "good") {
-    card.box = Math.min(6, card.box + 1);
-    const intervals = [0, 1, 3, 7, 14, 30, 60];
-    card.nextReview = daysFromNow(intervals[card.box] || 60);
-  }
-
-  card.history.push({ date: new Date().toISOString(), grade, from: oldBox, to: card.box });
-  card.updatedAt = new Date().toISOString();
-  state.currentId = null;
-  state.revealed = false;
+  applyReviewResult(entry.word, entry.card, result);
+  entry.word.updatedAt = nowIso();
   persist();
+  state.revealed = false;
+  state.dueCards.splice(state.currentIndex, 1);
+  if (state.currentIndex >= state.dueCards.length) {
+    state.currentIndex = 0;
+  }
   renderAll();
-  syncCard(card);
+}
+
+function applyReviewResult(word, card, result) {
+  const wasLearning = card.stage === "learning";
+  if (!Array.isArray(card.reviewHistory)) {
+    card.reviewHistory = [];
+  }
+  card.reviewCount += 1;
+  card.lastResult = result;
+  card.lastReviewedAt = nowIso();
+  card.reviewHistory.push({
+    result,
+    reviewedAt: card.lastReviewedAt,
+  });
+  card.reviewHistory = card.reviewHistory.slice(-10);
+
+  if (card.stage === "learning") {
+    applyLearningResult(card, result);
+  } else {
+    applyReviewStageResult(card, result);
+  }
+
+  if (card.stage === "learning" && card.correctStreak >= 3) {
+    card.stage = "review";
+    card.intervalDays = Math.max(card.intervalDays, 5);
+  }
+
+  if (wasLearning && card.direction === "ko_to_zh" && card.stage === "review") {
+    ensureZhToKoCard(word);
+  }
+
+  updateMasteredStatus(word);
+}
+
+function applyLearningResult(card, result) {
+  if (result === "forgot") {
+    card.dueDate = minutesFromNow(10);
+    card.intervalDays = 0;
+    card.correctStreak = 0;
+    card.wrongCount += 1;
+    return;
+  }
+  if (result === "fuzzy") {
+    card.dueDate = daysFromNow(1);
+    card.intervalDays = 1;
+    return;
+  }
+  if (result === "known") {
+    card.dueDate = daysFromNow(3);
+    card.intervalDays = 3;
+    card.correctStreak += 1;
+    return;
+  }
+  if (result === "easy") {
+    card.dueDate = daysFromNow(5);
+    card.intervalDays = 5;
+    card.correctStreak += 1;
+  }
+}
+
+function applyReviewStageResult(card, result) {
+  if (result === "forgot") {
+    card.intervalDays = 1;
+    card.dueDate = daysFromNow(1);
+    card.correctStreak = 0;
+    card.wrongCount += 1;
+    return;
+  }
+
+  const current = Math.max(1, Number(card.intervalDays) || 1);
+  if (result === "fuzzy") {
+    card.intervalDays = clampInterval(Math.max(2, Math.ceil(current * 1.2)), card);
+  }
+  if (result === "known") {
+    card.intervalDays = clampInterval(Math.ceil(current * 2.2), card);
+    card.correctStreak += 1;
+  }
+  if (result === "easy") {
+    card.intervalDays = clampInterval(Math.ceil(current * 3), card);
+    card.correctStreak += 1;
+  }
+  card.dueDate = daysFromNow(card.intervalDays);
+}
+
+function clampInterval(intervalDays, card) {
+  return Math.min(intervalDays, card.stage === "mastered" ? 90 : 45);
+}
+
+function updateMasteredStatus(word) {
+  const cards = word.reviewCards || [];
+  const koToZh = cards.find((card) => card.direction === "ko_to_zh");
+  const zhToKo = cards.find((card) => card.direction === "zh_to_ko");
+  const recentResults = cards
+    .flatMap((card) => card.reviewHistory || [])
+    .sort((a, b) => String(b.reviewedAt).localeCompare(String(a.reviewedAt)))
+    .slice(0, 3)
+    .map((entry) => entry.result);
+
+  const isMastered = Boolean(
+    koToZh &&
+      zhToKo &&
+      koToZh.correctStreak >= 3 &&
+      zhToKo.correctStreak >= 3 &&
+      cards.some((card) => Number(card.intervalDays) >= 30) &&
+      recentResults.length >= 3 &&
+      !recentResults.includes("forgot"),
+  );
+
+  if (!isMastered) return;
+  word.mastered = true;
+  cards.forEach((card) => {
+    if (card.stage !== "mastered") {
+      card.stage = "mastered";
+      card.intervalDays = Math.min(Math.max(Number(card.intervalDays) || 30, 30), 90);
+      card.dueDate = daysFromNow(card.intervalDays);
+    }
+  });
+}
+
+function ensureZhToKoCard(word) {
+  const hasZhToKo = (word.reviewCards || []).some((card) => card.direction === "zh_to_ko");
+  if (hasZhToKo) return;
+  word.reviewCards.push(createZhToKoCard());
+}
+
+function createZhToKoCard() {
+  return {
+    cardId: crypto.randomUUID(),
+    direction: "zh_to_ko",
+    stage: "learning",
+    dueDate: nowIso(),
+    intervalDays: 0,
+    reviewCount: 0,
+    correctStreak: 0,
+    wrongCount: 0,
+    lastResult: "",
+    lastReviewedAt: "",
+    reviewHistory: [],
+  };
 }
 
 function nextReviewCard() {
-  if (state.reviewQueue.length < 2) return;
-  const index = state.reviewQueue.indexOf(state.currentId);
-  const nextIndex = index >= 0 ? (index + 1) % state.reviewQueue.length : 0;
-  state.currentId = state.reviewQueue[nextIndex];
+  if (state.dueCards.length < 2) return;
+  state.currentIndex = (state.currentIndex + 1) % state.dueCards.length;
   state.revealed = false;
   renderReview();
 }
 
-function handleCardAction(event) {
+function handleWordAction(event) {
   const item = event.target.closest(".word-item");
-  const card = state.cards.find((entry) => entry.id === item.dataset.id);
-  if (!card) return;
+  const word = state.words.find((entry) => entry.id === item.dataset.id);
+  if (!word) return;
 
   const action = event.target.dataset.action;
-  if (action === "speak") speakKorean(card.word);
-  if (action === "edit") editCard(card);
-  if (action === "delete") deleteCard(card);
+  if (action === "speak") speakKorean(word.korean);
+  if (action === "edit") editWord(word);
+  if (action === "delete") deleteWord(word);
 }
 
 function speakKorean(word) {
@@ -294,35 +535,36 @@ function speakKorean(word) {
   speechSynthesis.speak(utterance);
 }
 
-function editCard(card) {
-  els.wordInput.value = card.word;
-  els.meaningInput.value = card.meaning || "";
-  els.noteInput.value = card.note || "";
-  els.posInput.value = card.pos || "";
-  els.pronunciationInput.value = card.pronunciation || "";
-  els.formsInput.value = card.forms || "";
+function editWord(word) {
+  els.wordInput.value = word.korean;
+  els.meaningInput.value = word.meaning || "";
+  els.noteInput.value = word.notes || "";
+  els.posInput.value = word.partOfSpeech || "";
+  els.pronunciationInput.value = word.pronunciation || "";
+  els.formsInput.value = word.forms || "";
+  switchTab("entry");
   els.wordInput.focus();
 }
 
-function deleteCard(card) {
-  state.cards = state.cards.filter((entry) => entry.id !== card.id);
+function deleteWord(word) {
+  state.words = state.words.filter((entry) => entry.id !== word.id);
   persist();
+  state.revealed = false;
   renderAll();
-  deleteCloudCard(card.id);
   toast("已删除");
 }
 
-function exportCards() {
-  const blob = new Blob([JSON.stringify(state.cards, null, 2)], { type: "application/json" });
+function exportWords() {
+  const blob = new Blob([JSON.stringify(state.words, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `korean-vocab-${todayKey()}.json`;
+  a.download = `korean-vocab-v2-${todayKey()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
-function importCards(event) {
+function importWords(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
@@ -330,12 +572,10 @@ function importCards(event) {
     try {
       const imported = JSON.parse(String(reader.result));
       if (!Array.isArray(imported)) throw new Error("格式不正确");
-      const byWord = new Map(state.cards.map((card) => [card.word, card]));
-      imported.forEach((card) => byWord.set(card.word, { ...card, id: card.id || crypto.randomUUID() }));
-      state.cards = [...byWord.values()];
+      state.words = imported;
       persist();
+      state.revealed = false;
       renderAll();
-      pushCloudCards();
       toast("导入完成");
     } catch (error) {
       toast(`导入失败：${error.message}`);
@@ -367,9 +607,6 @@ async function initCloud() {
     state.supabase.auth.onAuthStateChange((_event, session) => {
       state.user = session?.user || null;
       updateCloudStatus();
-      if (state.user) {
-        pullCloudCards({ quiet: true });
-      }
     });
     updateCloudStatus();
   } catch (error) {
@@ -388,6 +625,32 @@ function saveCloudConfig() {
   toast("云配置已保存");
 }
 
+async function sendLoginLink() {
+  if (!state.supabase) {
+    toast("先保存云配置");
+    return;
+  }
+
+  const email = els.syncEmailInput.value.trim();
+  if (!email) {
+    toast("先输入邮箱");
+    return;
+  }
+
+  const { error } = await state.supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: cleanCurrentUrl(),
+    },
+  });
+
+  if (error) {
+    toast(`发送失败：${error.message}`);
+    return;
+  }
+  toast("登录邮件已发送，请去邮箱点链接");
+}
+
 async function refreshSession(options = {}) {
   if (!state.supabase) {
     updateCloudStatus("先保存云配置");
@@ -404,42 +667,9 @@ async function refreshSession(options = {}) {
 
   state.user = data.session?.user || null;
   updateCloudStatus();
-  if (state.user) {
-    if (!options.quiet) toast("已登录云端");
-    pullCloudCards({ quiet: true });
-  } else if (!options.quiet) {
-    toast("还没有登录成功，请确认邮件链接是在这个浏览器打开的");
+  if (state.user && !options.quiet) {
+    toast("已登录云端");
   }
-}
-
-async function sendLoginLink() {
-  if (!state.supabase) {
-    toast("先保存云配置");
-    return;
-  }
-  const email = els.syncEmailInput.value.trim();
-  if (!email) {
-    toast("先输入邮箱");
-    return;
-  }
-  const { error } = await state.supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: cleanCurrentUrl(),
-    },
-  });
-  if (error) {
-    toast(`发送失败：${error.message}`);
-    return;
-  }
-  toast("登录邮件已发送，请去邮箱点链接");
-}
-
-function cleanCurrentUrl() {
-  const url = new URL(window.location.href);
-  url.hash = "";
-  url.search = "";
-  return url.toString();
 }
 
 async function signOut() {
@@ -450,47 +680,20 @@ async function signOut() {
   toast("已退出云端登录");
 }
 
-async function pullCloudCards(options = {}) {
+async function syncToCloudV2() {
   if (!ensureCloudUser()) return;
-  setSyncing(true, "正在从云端拉取...");
-  const { data, error } = await state.supabase
-    .from("vocab_cards")
-    .select("*")
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false });
+  if (!window.confirm("这会将当前本地新版词库同步到云端 v2，是否继续？")) return;
 
-  if (error) {
-    setSyncing(false, `拉取失败：${error.message}`);
+  const words = loadWords();
+  if (words.length === 0) {
+    toast("本地新版词库为空");
     return;
   }
 
-  const merged = new Map(state.cards.map((card) => [card.id, card]));
-  data.forEach((row) => {
-    const cloudCard = rowToCard(row);
-    const localCard = merged.get(cloudCard.id);
-    if (!localCard || newerThan(cloudCard.updatedAt, localCard.updatedAt)) {
-      merged.set(cloudCard.id, cloudCard);
-    }
-  });
-
-  state.cards = [...merged.values()];
-  persist();
-  renderAll();
-  setSyncing(false);
-  if (!options.quiet) toast("已从云端拉取");
-}
-
-async function pushCloudCards() {
-  if (!ensureCloudUser()) return;
-  if (state.cards.length === 0) {
-    toast("本地词库为空");
-    return;
-  }
-
-  setSyncing(true, "正在同步到云端...");
-  const rows = state.cards.map(cardToRow);
+  setSyncing(true, "正在同步到云端 v2...");
+  const rows = words.map((word) => toDbWord(word, state.user.id));
   const { error } = await state.supabase
-    .from("vocab_cards")
+    .from(SUPABASE_V2_TABLE)
     .upsert(rows, { onConflict: "id" });
 
   if (error) {
@@ -498,22 +701,86 @@ async function pushCloudCards() {
     return;
   }
 
+  const syncedAt = nowIso();
+  localStorage.setItem(LAST_SYNC_KEY, syncedAt);
   setSyncing(false);
-  toast("已同步到云端");
+  updateCloudStatus(`已同步到云端 v2：${formatDateTime(syncedAt)}`);
+  toast("已同步到云端 v2");
 }
 
-async function syncCard(card) {
-  if (!card || !state.supabase || !state.user || state.syncing) return;
-  await state.supabase.from("vocab_cards").upsert(cardToRow(card), { onConflict: "id" });
-  updateCloudStatus("已自动同步");
+async function restoreFromCloudV2() {
+  if (!ensureCloudUser()) return;
+  if (!window.confirm("这会用云端 v2 词库覆盖当前本地新版词库，是否继续？")) return;
+
+  setSyncing(true, "正在从云端 v2 恢复...");
+  const { data, error } = await state.supabase
+    .from(SUPABASE_V2_TABLE)
+    .select("*")
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    setSyncing(false, `恢复失败：${error.message}`);
+    return;
+  }
+
+  state.words = normalizeWords((data || []).map(fromDbWord));
+  persist();
+  state.revealed = false;
+  state.currentIndex = 0;
+  renderAll();
+
+  const syncedAt = nowIso();
+  localStorage.setItem(LAST_SYNC_KEY, syncedAt);
+  setSyncing(false);
+  updateCloudStatus(`已从云端 v2 恢复：${formatDateTime(syncedAt)}`);
+  toast("已从云端 v2 恢复到本地");
 }
 
-async function deleteCloudCard(id) {
-  if (!state.supabase || !state.user) return;
-  await state.supabase
-    .from("vocab_cards")
-    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", id);
+function toDbWord(word, userId) {
+  const createdAt = word.createdAt || nowIso();
+  const updatedAt = word.updatedAt || createdAt;
+  return {
+    id: word.id,
+    user_id: userId,
+    korean: word.korean || "",
+    base_form: word.baseForm || "",
+    meaning: word.meaning || "",
+    part_of_speech: word.partOfSpeech || "",
+    example_ko: word.exampleKo || "",
+    example_zh: word.exampleZh || "",
+    pronunciation: word.pronunciation || "",
+    forms: word.forms || "",
+    confusion: word.confusion || "",
+    source: word.source || "",
+    notes: word.notes || "",
+    mastered: Boolean(word.mastered),
+    review_cards: word.reviewCards || [],
+    created_at: createdAt,
+    updated_at: updatedAt,
+    deleted_at: null,
+  };
+}
+
+function fromDbWord(row) {
+  return {
+    id: row.id,
+    korean: row.korean || "",
+    baseForm: row.base_form || row.korean || "",
+    meaning: row.meaning || "",
+    partOfSpeech: row.part_of_speech || "",
+    exampleKo: row.example_ko || "",
+    exampleZh: row.example_zh || "",
+    pronunciation: row.pronunciation || "",
+    forms: row.forms || "",
+    confusion: row.confusion || "",
+    source: row.source || "",
+    notes: row.notes || "",
+    mastered: Boolean(row.mastered),
+    reviewCards: Array.isArray(row.review_cards) ? row.review_cards : [],
+    createdAt: row.created_at || nowIso(),
+    updatedAt: row.updated_at || row.created_at || nowIso(),
+  };
 }
 
 function ensureCloudUser() {
@@ -522,50 +789,10 @@ function ensureCloudUser() {
     return false;
   }
   if (!state.user) {
-    toast("先用邮箱登录云端");
+    toast("请先登录云端");
     return false;
   }
   return true;
-}
-
-function cardToRow(card) {
-  return {
-    id: card.id,
-    user_id: state.user.id,
-    word: card.word,
-    meaning: card.meaning || "",
-    note: card.note || "",
-    pos: card.pos || "",
-    pronunciation: card.pronunciation || "",
-    forms: card.forms || "",
-    box: card.box || 1,
-    next_review: card.nextReview || todayKey(),
-    created_at: card.createdAt || new Date().toISOString(),
-    updated_at: card.updatedAt || new Date().toISOString(),
-    history: card.history || [],
-    deleted_at: null,
-  };
-}
-
-function rowToCard(row) {
-  return {
-    id: row.id,
-    word: row.word,
-    meaning: row.meaning || "",
-    note: row.note || "",
-    pos: row.pos || "",
-    pronunciation: row.pronunciation || "",
-    forms: row.forms || "",
-    box: row.box || 1,
-    nextReview: row.next_review || todayKey(),
-    createdAt: row.created_at || new Date().toISOString(),
-    updatedAt: row.updated_at || new Date().toISOString(),
-    history: row.history || [],
-  };
-}
-
-function newerThan(left, right) {
-  return new Date(left || 0).getTime() > new Date(right || 0).getTime();
 }
 
 function setSyncing(syncing, message) {
@@ -581,7 +808,10 @@ function updateCloudStatus(message) {
   } else if (!state.user) {
     els.syncStatus.textContent = "云端已配置，未登录";
   } else {
-    els.syncStatus.textContent = `已登录：${state.user.email || "当前账号"}`;
+    const lastSyncAt = localStorage.getItem(LAST_SYNC_KEY);
+    els.syncStatus.textContent = lastSyncAt
+      ? `已登录：${state.user.email || "当前账号"} · 上次同步 ${formatDateTime(lastSyncAt)}`
+      : `已登录：${state.user.email || "当前账号"}`;
   }
 
   const canUseCloud = Boolean(state.supabase && state.user && !state.syncing);
@@ -590,12 +820,45 @@ function updateCloudStatus(message) {
   els.pushCloudButton.disabled = !canUseCloud;
 }
 
+function cleanCurrentUrl() {
+  const url = new URL(window.location.href);
+  url.hash = "";
+  url.search = "";
+  return url.toString();
+}
+
+function formatDateTime(value) {
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function switchTab(tabName) {
+  els.tabButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tabName);
+  });
+  els.tabViews.forEach((view) => {
+    view.classList.toggle("active", view.dataset.view === tabName);
+  });
+}
+
 function firstLine(value) {
   return String(value || "").split(/\n/)[0];
 }
 
 function lineBreaks(value) {
   return escapeHtml(value).replace(/\n/g, "<br />");
+}
+
+function formatDue(value) {
+  if (!value) return "未安排";
+  return new Date(value).toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  });
 }
 
 function escapeHtml(value) {

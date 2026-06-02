@@ -21,6 +21,7 @@ const state = {
   dueCards: [],
   currentIndex: 0,
   revealed: false,
+  reviewMode: "due",
   filter: "",
   supabase: null,
   user: null,
@@ -141,6 +142,7 @@ function renderAll() {
 
 function rebuildDueCards() {
   const now = Date.now();
+  state.reviewMode = "due";
   state.dueCards = state.words
     .flatMap((word) => {
       return (word.reviewCards || []).map((card) => ({ word, card }));
@@ -175,7 +177,9 @@ function renderStats() {
 function renderReview() {
   const entry = state.dueCards[state.currentIndex];
   const dueCount = state.dueCards.length;
-  els.reviewSubhead.textContent = dueCount
+  els.reviewSubhead.textContent = state.reviewMode === "extra"
+    ? `加练模式：随机显示 ${dueCount} 张卡片。`
+    : dueCount
     ? `今天默认显示 ${dueCount} 张到期卡片。`
     : "还没有到期卡片时，可以先录入几个新词。";
 
@@ -373,7 +377,9 @@ function reviewCurrent(result) {
   if (state.currentIndex >= state.dueCards.length) {
     state.currentIndex = 0;
   }
-  renderAll();
+  renderStats();
+  renderReview();
+  renderLibrary();
   keepReviewControlsInReach();
 }
 
@@ -517,11 +523,52 @@ function createZhToKoCard() {
 }
 
 function nextReviewCard() {
-  if (state.dueCards.length < 2) return;
+  if (state.dueCards.length < 2) {
+    startExtraPractice();
+    return;
+  }
   state.currentIndex = (state.currentIndex + 1) % state.dueCards.length;
   state.revealed = false;
   renderReview();
   keepReviewControlsInReach();
+}
+
+function startExtraPractice() {
+  const cards = getRandomPracticeCards();
+  if (cards.length === 0) {
+    toast("词库里还没有可以加练的卡片");
+    return;
+  }
+  state.reviewMode = "extra";
+  state.dueCards = cards;
+  state.currentIndex = 0;
+  state.revealed = false;
+  renderReview();
+  keepReviewControlsInReach();
+  toast(`已随机抽取 ${cards.length} 张加练卡`);
+}
+
+function getRandomPracticeCards() {
+  const today = todayKey();
+  const allCards = state.words.flatMap((word) => {
+    const cards = word.reviewCards || [];
+    const freshCards = cards.filter((card) => {
+      return !String(card.lastReviewedAt || "").startsWith(today);
+    });
+    const pool = freshCards.length ? freshCards : cards;
+    const card = shuffle(pool)[0];
+    return card ? [{ word, card }] : [];
+  });
+  return shuffle(allCards).slice(0, DAILY_GOAL);
+}
+
+function shuffle(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+  }
+  return shuffled;
 }
 
 function keepReviewControlsInReach() {

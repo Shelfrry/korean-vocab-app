@@ -166,8 +166,8 @@ function renderStats() {
   els.dueCount.textContent = allDueCount;
   els.doneCount.textContent = doneToday;
   els.goalProgress.innerHTML = `
-    <small class="goal-title">词库总数</small>
-    <span class="goal-value">${state.words.length}</span>
+    <span class="goal-value">${mastered}</span>
+    <small class="goal-title">已掌握</small>
   `;
   els.masteredCount.textContent = mastered;
 }
@@ -193,8 +193,11 @@ function renderReview() {
     ? `<div class="card-meaning">${lineBreaks(word.meaning || "还没有中文释义")}</div>`
     : `<div class="card-word" lang="ko">${escapeHtml(word.korean)}</div>`;
   const answer = isZhToKo ? renderZhToKoAnswer(word) : renderKoToZhAnswer(word);
+  const speakButton = !state.revealed && !isZhToKo
+    ? `<button type="button" id="speakCurrentButton" class="card-speak-button">朗读</button>`
+    : "";
 
-  els.reviewCard.className = "review-card";
+  els.reviewCard.className = state.revealed ? "review-card revealed" : "review-card";
   els.reviewCard.innerHTML = `
     <div>
       <div class="answer-label">${directionLabel}</div>
@@ -205,36 +208,38 @@ function renderReview() {
     <div class="card-answer" ${state.revealed ? "" : "hidden"}>
       ${answer}
     </div>
+    ${speakButton}
   `;
+  $("#speakCurrentButton")?.addEventListener("click", () => speakKorean(word.korean));
   setReviewButtons(true);
 }
 
 function renderKoToZhAnswer(word) {
   return `
-    <div>
-      <div class="answer-label">韩语词条</div>
-      <p lang="ko">${escapeHtml(word.korean)}</p>
-    </div>
-    <div>
-      <div class="answer-label">中文释义</div>
-      <p>${lineBreaks(word.meaning || "还没有释义")}</p>
-    </div>
-    ${word.partOfSpeech ? `<div><div class="answer-label">词性</div><p>${escapeHtml(word.partOfSpeech)}</p></div>` : ""}
-    ${word.forms ? `<div><div class="answer-label">变形 / 派生</div><p lang="ko">${lineBreaks(word.forms)}</p></div>` : ""}
+    ${renderAnswerRow("中文释义", word.meaning || "还没有释义")}
+    ${word.partOfSpeech ? renderAnswerRow("词性", displayPartOfSpeech(word.partOfSpeech)) : ""}
+    ${word.forms ? renderAnswerRow("变形 / 派生", word.forms, "ko") : ""}
   `;
 }
 
 function renderZhToKoAnswer(word) {
   return `
-    <div>
-      <div class="answer-label">韩语词条</div>
-      <p lang="ko">${escapeHtml(word.korean)}</p>
+    ${renderAnswerRow("韩语词条", word.korean, "ko")}
+    ${word.baseForm ? renderAnswerRow("原形", word.baseForm, "ko") : ""}
+    ${word.exampleKo ? renderAnswerRow("韩语原句", word.exampleKo, "ko") : ""}
+    ${word.forms ? renderAnswerRow("变形 / 派生", word.forms, "ko") : ""}
+    ${word.confusion ? renderAnswerRow("易混点", word.confusion) : ""}
+    ${word.notes ? renderAnswerRow("备注", word.notes) : ""}
+  `;
+}
+
+function renderAnswerRow(label, value, lang = "") {
+  const langAttr = lang ? ` lang="${lang}"` : "";
+  return `
+    <div class="answer-row">
+      <span class="answer-label">${escapeHtml(label)}</span>
+      <span class="answer-value"${langAttr}>${lineBreaks(value)}</span>
     </div>
-    ${word.baseForm ? `<div><div class="answer-label">原形</div><p lang="ko">${escapeHtml(word.baseForm)}</p></div>` : ""}
-    ${word.exampleKo ? `<div><div class="answer-label">韩语原句</div><p lang="ko">${lineBreaks(word.exampleKo)}</p></div>` : ""}
-    ${word.forms ? `<div><div class="answer-label">变形 / 派生</div><p lang="ko">${lineBreaks(word.forms)}</p></div>` : ""}
-    ${word.confusion ? `<div><div class="answer-label">易混点</div><p>${lineBreaks(word.confusion)}</p></div>` : ""}
-    ${word.notes ? `<div><div class="answer-label">备注</div><p>${lineBreaks(word.notes)}</p></div>` : ""}
   `;
 }
 
@@ -272,7 +277,7 @@ function renderLibrary() {
       <article class="word-item" data-id="${word.id}">
         <div class="word-title-row">
           <strong lang="ko">${escapeHtml(word.korean)}</strong>
-          <span class="word-meta">${escapeHtml(word.partOfSpeech || "未标注")}</span>
+          <span class="word-meta">${escapeHtml(displayPartOfSpeech(word.partOfSpeech) || "未标注")}</span>
         </div>
         <p class="word-text">${escapeHtml(firstLine(word.meaning) || "无释义")}</p>
         <p class="word-meta">${escapeHtml(card?.stage || "learning")} · 下次 ${formatDue(card?.dueDate)}</p>
@@ -353,6 +358,7 @@ function createKoToZhCard() {
 function revealCurrent() {
   state.revealed = true;
   renderReview();
+  keepReviewControlsInReach();
 }
 
 function reviewCurrent(result) {
@@ -368,6 +374,7 @@ function reviewCurrent(result) {
     state.currentIndex = 0;
   }
   renderAll();
+  keepReviewControlsInReach();
 }
 
 function applyReviewResult(word, card, result) {
@@ -514,6 +521,18 @@ function nextReviewCard() {
   state.currentIndex = (state.currentIndex + 1) % state.dueCards.length;
   state.revealed = false;
   renderReview();
+  keepReviewControlsInReach();
+}
+
+function keepReviewControlsInReach() {
+  if (!$("#reviewView")?.classList.contains("active")) return;
+  requestAnimationFrame(() => {
+    $(".review-actions")?.scrollIntoView({
+      block: "end",
+      inline: "nearest",
+      behavior: "auto",
+    });
+  });
 }
 
 function handleWordAction(event) {
@@ -992,6 +1011,28 @@ function formatDue(value) {
     month: "2-digit",
     day: "2-digit",
   });
+}
+
+function displayPartOfSpeech(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const labels = {
+    명사: "名词",
+    대명사: "代词",
+    수사: "数词",
+    동사: "动词",
+    형용사: "形容词",
+    관형사: "冠形词",
+    부사: "副词",
+    조사: "助词",
+    감탄사: "叹词",
+    어미: "语尾",
+    표현: "表达",
+    기타: "其他",
+  };
+  if (labels[raw]) return labels[raw];
+  const matched = Object.keys(labels).find((key) => raw.includes(key));
+  return matched ? labels[matched] : raw;
 }
 
 function escapeHtml(value) {

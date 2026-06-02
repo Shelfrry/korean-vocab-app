@@ -16,23 +16,24 @@
       </header>
 
       <nav class="tab-bar" aria-label="功能导航">
-        <button type="button" class="tab-button active" data-tab="review">今日复习</button>
-        <button type="button" class="tab-button" data-tab="entry">录入单词</button>
-        <button type="button" class="tab-button" data-tab="sync">云端同步</button>
+        <button type="button" class="tab-button active" data-tab="review">今日</button>
+        <button type="button" class="tab-button" data-tab="entry">录入</button>
+        <button type="button" class="tab-button" data-tab="library">词库</button>
+        <button type="button" class="tab-button" data-tab="sync">同步</button>
       </nav>
 
       <section id="reviewView" class="tab-view active" data-view="review">
         <section class="review-dashboard" aria-label="今日复习概览">
           <div>
             <span id="dueCount">0</span>
-            <small>今日待复习</small>
+            <small>待复习</small>
           </div>
           <div>
             <span id="doneCount">0</span>
-            <small>今日已完成</small>
+            <small>已完成</small>
           </div>
           <div>
-            <span id="goalProgress">0/10</span>
+            <div id="goalProgress">0</div>
           </div>
         </section>
 
@@ -108,7 +109,11 @@
               <button type="submit" class="primary-button">加入词库</button>
             </form>
           </aside>
+        </section>
+      </section>
 
+      <section id="libraryView" class="tab-view" data-view="library">
+        <section class="entry-layout">
           <section class="panel library-panel">
             <div class="panel-head">
               <div>

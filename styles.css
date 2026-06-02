@@ -70,7 +70,7 @@ button:active:not(:disabled) {
 .app-shell {
   width: min(520px, calc(100% - 24px));
   margin: 0 auto;
-  padding: 24px 0 104px;
+  padding: 20px 0 104px;
 }
 
 .topbar {
@@ -82,10 +82,10 @@ button:active:not(:disabled) {
 }
 
 .eyebrow {
-  margin: 0 0 8px;
-  color: var(--brand);
-  font-size: 0.72rem;
-  font-weight: 850;
+  margin: 0 0 6px;
+  color: rgba(143, 111, 97, 0.72);
+  font-size: 0.68rem;
+  font-weight: 760;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -98,9 +98,9 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: clamp(2rem, 12vw, 3.6rem);
+  font-size: clamp(1.8rem, 8vw, 2.4rem);
   letter-spacing: 0;
-  line-height: 0.98;
+  line-height: 1.05;
 }
 
 h2 {
@@ -115,7 +115,7 @@ h2 {
   z-index: 20;
   width: min(460px, calc(100% - 28px));
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
   padding: 8px;
   border: 1px solid rgba(234, 223, 215, 0.9);
@@ -127,11 +127,12 @@ h2 {
 }
 
 .tab-button {
-  min-height: 42px;
+  min-height: 40px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
+  font-size: 0.92rem;
   font-weight: 850;
   white-space: nowrap;
 }
@@ -161,11 +162,11 @@ h2 {
   margin-bottom: 14px;
 }
 
-.stats div,
-.review-dashboard div {
+.stats > div,
+.review-dashboard > div {
   position: relative;
   min-width: 0;
-  padding: 14px 12px 16px;
+  padding: 13px 12px 14px;
   border: 1px solid rgba(234, 223, 215, 0.95);
   border-radius: 22px;
   background: rgba(255, 252, 247, 0.82);
@@ -173,22 +174,11 @@ h2 {
   overflow: hidden;
 }
 
-.review-dashboard div:nth-child(3)::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 8px;
-  height: 5px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #d8b7ab 0 48%, #efe4da 48% 100%);
-}
-
 .stats span,
 .review-dashboard span {
   display: block;
   font-weight: 900;
-  font-size: clamp(1.1rem, 5vw, 1.48rem);
+  font-size: clamp(1.08rem, 4.8vw, 1.42rem);
   line-height: 1.1;
 }
 
@@ -206,19 +196,20 @@ h2 {
 
 #goalProgress {
   display: grid;
-  gap: 5px;
+  gap: 7px;
 }
 
 #goalProgress .goal-title {
   display: block;
-  color: var(--muted);
-  font-size: 0.74rem;
+  color: #40536a;
+  font-size: 0.9rem;
   font-weight: 850;
   line-height: 1.1;
 }
 
 #goalProgress .goal-value {
   display: block;
+  color: #25384f;
   font-size: clamp(1.1rem, 5vw, 1.48rem);
   font-weight: 900;
   line-height: 1.1;
@@ -416,23 +407,35 @@ button:disabled {
   background:
     linear-gradient(180deg, rgba(255, 252, 247, 0.95), rgba(252, 244, 236, 0.9)),
     var(--panel);
+  padding: 18px;
 }
 
 .review-card {
-  min-height: 420px;
+  position: relative;
+  min-height: 300px;
+  max-height: min(52svh, 480px);
   display: grid;
   align-content: center;
   gap: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   border: 1px solid rgba(232, 219, 209, 0.98);
-  border-radius: 28px;
+  border-radius: 26px;
   background:
     linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(255, 248, 239, 0.96)),
     #fffaf4;
-  box-shadow: 0 20px 42px rgba(97, 78, 64, 0.12);
-  padding: clamp(24px, 7vw, 38px);
+  box-shadow: 0 14px 30px rgba(97, 78, 64, 0.1);
+  padding: clamp(22px, 6vw, 34px);
+}
+
+.review-card.revealed {
+  align-content: start;
 }
 
 .review-card.empty {
+  height: auto;
+  min-height: 360px;
   text-align: center;
   color: var(--muted);
   background:
@@ -447,7 +450,7 @@ button:disabled {
 }
 
 .card-word {
-  font-size: clamp(3.2rem, 18vw, 6.6rem);
+  font-size: clamp(3rem, 16vw, 5.8rem);
   line-height: 1;
   letter-spacing: 0;
   word-break: keep-all;
@@ -486,7 +489,7 @@ button:disabled {
 
 .card-answer {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   border-top: 1px dashed #decfc5;
   padding-top: 20px;
 }
@@ -495,14 +498,24 @@ button:disabled {
   display: none;
 }
 
-.card-answer p {
-  margin-bottom: 0;
+.answer-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
   line-height: 1.62;
 }
 
+.answer-value {
+  min-width: 0;
+  flex: 1 1 150px;
+}
+
 .answer-label {
+  display: inline-flex;
   width: fit-content;
-  margin-bottom: 6px;
+  align-items: center;
+  flex: 0 0 auto;
   border-radius: 999px;
   background: #efe2d8;
   color: var(--brand-strong);
@@ -512,14 +525,70 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.card-speak-button {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  min-height: 36px;
+  border: 1px solid rgba(231, 217, 207, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 250, 244, 0.92);
+  color: var(--brand-strong);
+  padding: 0 14px;
+  font-size: 0.82rem;
+  font-weight: 850;
+  box-shadow: var(--soft-shadow);
+}
+
+.card-speak-button:hover:not(:disabled) {
+  background: #fff7ed;
+  border-color: #dac8bc;
+}
+
 .review-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 14px;
 }
 
 .review-actions #revealAnswer {
   grid-column: 1 / -1;
+  min-height: 50px;
+  background: #b79080;
+  border-color: transparent;
+  color: #fffaf6;
+  box-shadow: 0 8px 18px rgba(143, 111, 97, 0.18);
+}
+
+.review-actions #revealAnswer:hover:not(:disabled) {
+  background: #9f7c70;
+}
+
+.review-actions #forgotButton {
+  background: #f8e6e5;
+  border-color: #efcfcc;
+  color: #9a6664;
+}
+
+.review-actions #fuzzyButton {
+  background: #f7ead7;
+  border-color: #ecd8b9;
+  color: #8b6a3e;
+}
+
+.review-actions #knownButton {
+  background: #e5ebef;
+  border-color: #cfdbe2;
+  color: #516779;
+  box-shadow: none;
+}
+
+.review-actions #easyButton {
+  background: #e0eadf;
+  border-color: #c9dcc8;
+  color: #536f58;
+  box-shadow: none;
 }
 
 .review-actions .secondary-button,
@@ -546,7 +615,12 @@ button:disabled {
   border: 1px solid rgba(232, 219, 209, 0.94);
   border-radius: 22px;
   background: rgba(255, 250, 244, 0.9);
-  padding: 14px;
+  padding: 15px;
+}
+
+.word-title-row strong {
+  font-size: 1.18rem;
+  line-height: 1.2;
 }
 
 .word-title-row,
@@ -589,10 +663,11 @@ button:disabled {
   min-height: 34px;
   border: 1px solid rgba(231, 217, 207, 0.95);
   border-radius: 999px;
-  background: rgba(255, 250, 244, 0.9);
-  padding: 0 12px;
-  color: var(--ink);
-  font-weight: 800;
+  background: rgba(255, 250, 244, 0.56);
+  padding: 0 11px;
+  color: rgba(111, 85, 75, 0.72);
+  font-size: 0.82rem;
+  font-weight: 760;
 }
 
 .toast {
@@ -637,7 +712,8 @@ button:disabled {
   }
 
   .review-card {
-    min-height: 360px;
+    min-height: 280px;
+    max-height: min(48svh, 420px);
   }
 }
 

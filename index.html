@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>韩语词卡</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Korean Vocabulary Studio</p>
+          <h1>韩语词卡</h1>
+        </div>
+        <div class="stats" aria-label="学习概览">
+          <div>
+            <span id="totalCount">0</span>
+            <small>词库</small>
+          </div>
+          <div>
+            <span id="dueCount">0</span>
+            <small>今日</small>
+          </div>
+          <div>
+            <span id="masteredCount">0</span>
+            <small>熟练</small>
+          </div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="panel add-panel">
+          <div class="panel-head">
+            <h2>录入新词</h2>
+          </div>
+
+          <form id="wordForm" class="word-form">
+            <label for="wordInput">韩语单词</label>
+            <input id="wordInput" required lang="ko" autocomplete="off" placeholder="예: 기억하다" />
+
+            <label for="meaningInput">中文释义</label>
+            <textarea id="meaningInput" rows="4" placeholder="自己写中文意思、近义词或容易混淆的点"></textarea>
+
+            <label for="noteInput">我的例句 / 易混点</label>
+            <textarea id="noteInput" rows="3" placeholder="예: 기억이 나다 / 기억하다 的区别"></textarea>
+
+            <div class="form-grid">
+              <label>
+                词性
+                <select id="posInput">
+                  <option value="">未标注</option>
+                  <option value="명사">명사 名词</option>
+                  <option value="대명사">대명사 代词</option>
+                  <option value="수사">수사 数词</option>
+                  <option value="동사">동사 动词</option>
+                  <option value="형용사">형용사 形容词</option>
+                  <option value="관형사">관형사 冠形词</option>
+                  <option value="부사">부사 副词</option>
+                  <option value="조사">조사 助词</option>
+                  <option value="감탄사">감탄사 叹词</option>
+                  <option value="어미">어미 语尾</option>
+                  <option value="표현">표현 表达/短语</option>
+                  <option value="기타">기타 其他</option>
+                </select>
+              </label>
+              <label>
+                发音
+                <input id="pronunciationInput" lang="ko" placeholder="기어카다" />
+              </label>
+            </div>
+
+            <label for="formsInput">变形 / 派生</label>
+            <textarea id="formsInput" rows="3" placeholder="예: 해요体、过去式、名词化、相关词"></textarea>
+
+            <button type="submit" class="primary-button">加入词库</button>
+          </form>
+
+          <section class="sync-box" aria-labelledby="syncTitle">
+            <div class="panel-head compact-head">
+              <div>
+                <h2 id="syncTitle">云端同步</h2>
+                <p id="syncStatus">未连接</p>
+              </div>
+            </div>
+            <div class="sync-form">
+              <label for="supabaseUrlInput">Supabase URL</label>
+              <input id="supabaseUrlInput" autocomplete="off" placeholder="https://xxxx.supabase.co" />
+
+              <label for="supabaseAnonInput">Supabase anon key</label>
+              <input id="supabaseAnonInput" type="password" autocomplete="off" placeholder="eyJ..." />
+              <button type="button" id="saveCloudConfig" class="secondary-button">保存云配置</button>
+
+              <label for="syncEmailInput">邮箱</label>
+              <input id="syncEmailInput" type="email" autocomplete="email" placeholder="you@example.com" />
+              <div class="sync-actions">
+                <button type="button" id="sendLoginLink" class="secondary-button">发送登录邮件</button>
+                <button type="button" id="signOutButton" class="secondary-button" disabled>退出</button>
+              </div>
+              <div class="sync-actions">
+                <button type="button" id="pullCloudButton" class="secondary-button" disabled>从云端拉取</button>
+                <button type="button" id="pushCloudButton" class="primary-button" disabled>同步到云端</button>
+              </div>
+            </div>
+          </section>
+        </aside>
+
+        <section class="panel review-panel">
+          <div class="panel-head">
+            <div>
+              <h2>今日复习</h2>
+              <p id="reviewSubhead">还没有到期卡片时，可以先录入几个新词。</p>
+            </div>
+            <button id="shuffleReview" class="icon-button" title="换一张" aria-label="换一张">↻</button>
+          </div>
+
+          <article id="reviewCard" class="review-card empty">
+            <p class="empty-title">今天的卡片会出现在这里</p>
+            <p>单词先出现，点“显示答案”后再判断熟练度。</p>
+          </article>
+
+          <div class="review-actions">
+            <button id="revealAnswer" class="secondary-button" disabled>显示答案</button>
+            <button id="againButton" class="danger-button" disabled>不认识</button>
+            <button id="hardButton" class="secondary-button" disabled>模糊</button>
+            <button id="goodButton" class="primary-button" disabled>认识</button>
+          </div>
+        </section>
+
+        <section class="panel library-panel">
+          <div class="panel-head">
+            <h2>我的词库</h2>
+            <div class="library-tools">
+              <input id="filterInput" placeholder="搜索词库" />
+              <button id="exportButton" class="icon-button" title="导出数据" aria-label="导出数据">⇩</button>
+              <label class="icon-button import-button" title="导入数据" aria-label="导入数据">
+                ⇧
+                <input id="importInput" type="file" accept="application/json" />
+              </label>
+            </div>
+          </div>
+          <div id="wordList" class="word-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -95,10 +95,13 @@
               <input id="syncEmailInput" type="email" autocomplete="email" placeholder="you@example.com" />
               <div class="sync-actions">
                 <button type="button" id="sendLoginLink" class="secondary-button">发送登录邮件</button>
-                <button type="button" id="signOutButton" class="secondary-button" disabled>退出</button>
+                <button type="button" id="refreshSessionButton" class="secondary-button">检查登录状态</button>
               </div>
               <div class="sync-actions">
+                <button type="button" id="signOutButton" class="secondary-button" disabled>退出</button>
                 <button type="button" id="pullCloudButton" class="secondary-button" disabled>从云端拉取</button>
+              </div>
+              <div class="sync-actions">
                 <button type="button" id="pushCloudButton" class="primary-button" disabled>同步到云端</button>
               </div>
             </div>

@@ -48,6 +48,7 @@ const els = {
   saveCloudConfig: $("#saveCloudConfig"),
   syncEmailInput: $("#syncEmailInput"),
   sendLoginLink: $("#sendLoginLink"),
+  refreshSessionButton: $("#refreshSessionButton"),
   signOutButton: $("#signOutButton"),
   pullCloudButton: $("#pullCloudButton"),
   pushCloudButton: $("#pushCloudButton"),
@@ -71,6 +72,7 @@ els.exportButton.addEventListener("click", exportCards);
 els.importInput.addEventListener("change", importCards);
 els.saveCloudConfig.addEventListener("click", saveCloudConfig);
 els.sendLoginLink.addEventListener("click", sendLoginLink);
+els.refreshSessionButton.addEventListener("click", refreshSession);
 els.signOutButton.addEventListener("click", signOut);
 els.pullCloudButton.addEventListener("click", pullCloudCards);
 els.pushCloudButton.addEventListener("click", pushCloudCards);
@@ -352,11 +354,16 @@ async function initCloud() {
   }
 
   try {
-    state.supabase = createClient(url, anonKey);
+    state.supabase = createClient(url, anonKey, {
+      auth: {
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        flowType: "implicit",
+        persistSession: true,
+      },
+    });
     state.cloudReady = true;
-    const { data, error } = await state.supabase.auth.getSession();
-    if (error) throw error;
-    state.user = data.session?.user || null;
+    await refreshSession({ quiet: true });
     state.supabase.auth.onAuthStateChange((_event, session) => {
       state.user = session?.user || null;
       updateCloudStatus();
@@ -381,6 +388,30 @@ function saveCloudConfig() {
   toast("云配置已保存");
 }
 
+async function refreshSession(options = {}) {
+  if (!state.supabase) {
+    updateCloudStatus("先保存云配置");
+    if (!options.quiet) toast("先保存云配置");
+    return;
+  }
+
+  const { data, error } = await state.supabase.auth.getSession();
+  if (error) {
+    updateCloudStatus(`登录检查失败：${error.message}`);
+    if (!options.quiet) toast(`登录检查失败：${error.message}`);
+    return;
+  }
+
+  state.user = data.session?.user || null;
+  updateCloudStatus();
+  if (state.user) {
+    if (!options.quiet) toast("已登录云端");
+    pullCloudCards({ quiet: true });
+  } else if (!options.quiet) {
+    toast("还没有登录成功，请确认邮件链接是在这个浏览器打开的");
+  }
+}
+
 async function sendLoginLink() {
   if (!state.supabase) {
     toast("先保存云配置");
@@ -394,7 +425,7 @@ async function sendLoginLink() {
   const { error } = await state.supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: window.location.href.split("#")[0],
+      emailRedirectTo: cleanCurrentUrl(),
     },
   });
   if (error) {
@@ -402,6 +433,13 @@ async function sendLoginLink() {
     return;
   }
   toast("登录邮件已发送，请去邮箱点链接");
+}
+
+function cleanCurrentUrl() {
+  const url = new URL(window.location.href);
+  url.hash = "";
+  url.search = "";
+  return url.toString();
 }
 
 async function signOut() {

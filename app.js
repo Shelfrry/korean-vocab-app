@@ -59,6 +59,8 @@ const els = {
   saveCloudConfig: $("#saveCloudConfig"),
   syncEmailInput: $("#syncEmailInput"),
   sendLoginLink: $("#sendLoginLink"),
+  magicLinkInput: $("#magicLinkInput"),
+  applyMagicLinkButton: $("#applyMagicLinkButton"),
   refreshSessionButton: $("#refreshSessionButton"),
   signOutButton: $("#signOutButton"),
   pullCloudButton: $("#pullCloudButton"),
@@ -86,6 +88,7 @@ els.exportButton.addEventListener("click", exportWords);
 els.importInput.addEventListener("change", importWords);
 els.saveCloudConfig.addEventListener("click", saveCloudConfig);
 els.sendLoginLink.addEventListener("click", sendLoginLink);
+els.applyMagicLinkButton.addEventListener("click", applyMagicLink);
 els.refreshSessionButton.addEventListener("click", refreshSession);
 els.signOutButton.addEventListener("click", signOut);
 els.pullCloudButton.addEventListener("click", restoreFromCloudV2);
@@ -786,6 +789,67 @@ async function sendLoginLink() {
     return;
   }
   toast("登录邮件已发送，请去邮箱点链接");
+}
+
+async function applyMagicLink() {
+  if (!state.supabase) {
+    toast("先保存云配置");
+    return;
+  }
+
+  const link = els.magicLinkInput.value.trim();
+  if (!link) {
+    toast("先粘贴邮箱登录链接");
+    return;
+  }
+
+  try {
+    const params = authParamsFromLink(link);
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    const tokenHash = params.get("token_hash");
+    const token = params.get("token");
+    const type = params.get("type") || "magiclink";
+    let result;
+
+    if (accessToken && refreshToken) {
+      result = await state.supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+    } else if (tokenHash) {
+      result = await state.supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type,
+      });
+    } else if (token && els.syncEmailInput.value.trim()) {
+      result = await state.supabase.auth.verifyOtp({
+        email: els.syncEmailInput.value.trim(),
+        token,
+        type,
+      });
+    } else {
+      throw new Error("这个链接里没有找到可用的登录凭证");
+    }
+
+    if (result.error) throw result.error;
+    state.user = result.data?.session?.user || result.data?.user || null;
+    els.magicLinkInput.value = "";
+    await refreshSession({ quiet: true });
+    updateCloudStatus();
+    toast(state.user ? "已登录云端" : "登录链接已处理，请再点检查登录状态");
+  } catch (error) {
+    toast(`登录失败：${error.message}`);
+  }
+}
+
+function authParamsFromLink(link) {
+  const url = new URL(link);
+  const params = new URLSearchParams(url.search);
+  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+  const hashParams = new URLSearchParams(hash);
+  hashParams.forEach((value, key) => params.set(key, value));
+  return params;
 }
 
 async function refreshSession(options = {}) {

@@ -1157,6 +1157,12 @@ textarea {
   }
 }
 
+/* Upload-ready cleanup */
+.topbar::after {
+  display: none !important;
+  content: none !important;
+}
+
 /* Header perch line and text-only bottom nav */
 .topbar {
   position: relative;
@@ -3652,4 +3658,10 @@ textarea::placeholder {
   .tab-button {
     font-size: 1.02rem;
   }
+}
+
+/* Upload-ready cleanup */
+.topbar::after {
+  display: none !important;
+  content: none !important;
 }

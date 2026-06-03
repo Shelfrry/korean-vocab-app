@@ -1163,6 +1163,111 @@ textarea {
   content: none !important;
 }
 
+/* Wide banner final placement */
+.topbar {
+  min-height: clamp(118px, 25vw, 136px) !important;
+  margin-bottom: -60px !important;
+  padding: 0 !important;
+  transform: none !important;
+  z-index: 4;
+}
+
+.brand-header {
+  width: 100% !important;
+  height: clamp(118px, 25vw, 136px) !important;
+  min-height: 118px !important;
+  max-height: 136px !important;
+  display: block !important;
+  overflow: visible !important;
+}
+
+.brand-header-image {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  object-position: center bottom !important;
+  transform: none !important;
+}
+
+.review-dashboard {
+  margin-top: 0 !important;
+}
+
+.tab-view.active > .review-dashboard,
+.tab-view.active > .entry-layout,
+.tab-view.active > .panel {
+  position: relative;
+  z-index: 2;
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    min-height: clamp(112px, 25vw, 130px) !important;
+    margin-bottom: -56px !important;
+  }
+
+  .brand-header {
+    height: clamp(112px, 25vw, 130px) !important;
+    min-height: 112px !important;
+    max-height: 130px !important;
+  }
+}
+
+/* Wide Otterly banner header */
+.topbar {
+  min-height: clamp(118px, 25vw, 136px);
+  margin-bottom: -60px;
+  padding: 0;
+  transform: none;
+  z-index: 4;
+}
+
+.brand-header {
+  width: 100%;
+  height: clamp(118px, 25vw, 136px);
+  min-height: 118px;
+  max-height: 136px;
+  display: block;
+  overflow: visible;
+}
+
+.brand-header-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+  object-position: center bottom;
+  transform: none;
+}
+
+.tab-view.active > .review-dashboard,
+.tab-view.active > .entry-layout,
+.tab-view.active > .panel {
+  position: relative;
+  z-index: 2;
+}
+
+.review-dashboard {
+  margin-top: 0;
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    min-height: clamp(112px, 25vw, 130px);
+    margin-bottom: -56px;
+    transform: none;
+  }
+
+  .brand-header {
+    height: clamp(112px, 25vw, 130px);
+    min-height: 112px;
+    max-height: 130px;
+  }
+}
+
 /* Header perch line and text-only bottom nav */
 .topbar {
   position: relative;
@@ -3664,4 +3769,101 @@ textarea::placeholder {
 .topbar::after {
   display: none !important;
   content: none !important;
+}
+
+/* Safe wide banner placement: no content overlap */
+.topbar {
+  min-height: 130px !important;
+  margin-bottom: 16px !important;
+  padding: 0 !important;
+  transform: none !important;
+  z-index: 1 !important;
+}
+
+.brand-header {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  display: block !important;
+  overflow: visible !important;
+}
+
+.brand-header-image {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  object-position: center bottom !important;
+  transform: none !important;
+}
+
+.review-dashboard {
+  margin-top: 0 !important;
+}
+
+.tab-view.active > .review-dashboard,
+.tab-view.active > .entry-layout,
+.tab-view.active > .panel {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    min-height: 124px !important;
+    margin-bottom: 14px !important;
+    transform: none !important;
+  }
+}
+
+/* Gentle otter perch overlap */
+.topbar {
+  margin-bottom: -10px !important;
+}
+
+.review-dashboard {
+  margin-top: 0 !important;
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    margin-bottom: -8px !important;
+  }
+}
+
+/* Slightly tighter perch overlap */
+.topbar {
+  margin-bottom: -24px !important;
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    margin-bottom: -22px !important;
+  }
+}
+
+/* Perch fine tune: less overlap, banner above cards */
+.topbar {
+  margin-bottom: -20px !important;
+  position: relative !important;
+  z-index: 8 !important;
+}
+
+.brand-header,
+.brand-header-image {
+  position: relative !important;
+  z-index: 9 !important;
+}
+
+.review-dashboard {
+  position: relative !important;
+  z-index: 3 !important;
+}
+
+@media (max-width: 460px) {
+  .topbar {
+    margin-bottom: -18px !important;
+  }
 }

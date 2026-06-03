@@ -1183,6 +1183,7 @@ function switchTab(tabName) {
   els.tabViews.forEach((view) => {
     view.classList.toggle("active", view.dataset.view === tabName);
   });
+  $(".brand-header-image").src = tabName === "review" ? "./assets/banner-today.png" : "./assets/banner.png";
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 }
 

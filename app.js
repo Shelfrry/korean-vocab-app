@@ -63,7 +63,6 @@ const els = {
   signOutButton: $("#signOutButton"),
   pullCloudButton: $("#pullCloudButton"),
   pushCloudButton: $("#pushCloudButton"),
-  importLegacyButton: $("#importLegacyButton"),
   syncStatus: $("#syncStatus"),
   tabButtons: document.querySelectorAll(".tab-button"),
   tabViews: document.querySelectorAll(".tab-view"),
@@ -74,10 +73,10 @@ els.supabaseAnonInput.value = localStorage.getItem(CLOUD_ANON_KEY) || "";
 
 els.wordForm.addEventListener("submit", saveWordFromForm);
 els.revealAnswer.addEventListener("click", revealCurrent);
-els.forgotButton.addEventListener("click", () => reviewCurrent("forgot"));
-els.fuzzyButton.addEventListener("click", () => reviewCurrent("fuzzy"));
-els.knownButton.addEventListener("click", () => reviewCurrent("known"));
-els.easyButton.addEventListener("click", () => reviewCurrent("easy"));
+els.forgotButton.addEventListener("click", (event) => reviewCurrent("forgot", event));
+els.fuzzyButton.addEventListener("click", (event) => reviewCurrent("fuzzy", event));
+els.knownButton.addEventListener("click", (event) => reviewCurrent("known", event));
+els.easyButton.addEventListener("click", (event) => reviewCurrent("easy", event));
 els.nextReview.addEventListener("click", nextReviewCard);
 els.filterInput.addEventListener("input", (event) => {
   state.filter = event.target.value.trim().toLowerCase();
@@ -91,7 +90,6 @@ els.refreshSessionButton.addEventListener("click", refreshSession);
 els.signOutButton.addEventListener("click", signOut);
 els.pullCloudButton.addEventListener("click", restoreFromCloudV2);
 els.pushCloudButton.addEventListener("click", syncToCloudV2);
-els.importLegacyButton.addEventListener("click", importLegacyToV2);
 els.tabButtons.forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
 });
@@ -167,10 +165,7 @@ function renderStats() {
   els.totalCount.textContent = state.words.length;
   els.dueCount.textContent = allDueCount;
   els.doneCount.textContent = doneToday;
-  els.goalProgress.innerHTML = `
-    <span class="goal-value">${mastered}</span>
-    <small class="goal-title">已掌握</small>
-  `;
+  els.goalProgress.textContent = mastered;
   els.masteredCount.textContent = mastered;
 }
 
@@ -185,7 +180,7 @@ function renderReview() {
 
   if (!entry) {
     els.reviewCard.className = "review-card empty";
-    els.reviewCard.innerHTML = `<p class="empty-title">今天没有到期卡片。</p><p>可以去录入页添加新词，或等待下一次复习。</p>`;
+    els.reviewCard.innerHTML = `<p class="empty-title">摩拳擦掌接着学吧</p><p>录入新词 or 继续复习</p>`;
     setReviewButtons(false);
     return;
   }
@@ -193,21 +188,20 @@ function renderReview() {
   const { word, card } = entry;
   const isZhToKo = card.direction === "zh_to_ko";
   const directionLabel = isZhToKo ? "中 → 韩" : "韩 → 中";
+  const pronunciation = word.pronunciation
+    ? `<div class="card-front-pronunciation">${escapeHtml(word.pronunciation)}</div>`
+    : "";
   const front = isZhToKo
     ? `<div class="card-meaning">${lineBreaks(word.meaning || "还没有中文释义")}</div>`
-    : `<div class="card-word" lang="ko">${escapeHtml(word.korean)}</div>`;
+    : `<div class="card-word" lang="ko">${escapeHtml(word.korean)}</div>${pronunciation}`;
   const answer = isZhToKo ? renderZhToKoAnswer(word) : renderKoToZhAnswer(word);
-  const speakButton = !state.revealed && !isZhToKo
-    ? `<button type="button" id="speakCurrentButton" class="card-speak-button">朗读</button>`
-    : "";
+  const speakButton = `<button type="button" id="speakCurrentButton" class="card-speak-button">朗读</button>`;
 
   els.reviewCard.className = state.revealed ? "review-card revealed" : "review-card";
   els.reviewCard.innerHTML = `
     <div>
-      <div class="answer-label">${directionLabel}</div>
+      <div class="direction-pill">${directionLabel}</div>
       ${front}
-      ${word.pronunciation ? `<div class="card-pronunciation">[${escapeHtml(word.pronunciation)}]</div>` : ""}
-      <p class="card-schedule">${escapeHtml(card.stage)} · 已复习 ${card.reviewCount} 次 · streak ${card.correctStreak}</p>
     </div>
     <div class="card-answer" ${state.revealed ? "" : "hidden"}>
       ${answer}
@@ -220,7 +214,7 @@ function renderReview() {
 
 function renderKoToZhAnswer(word) {
   return `
-    ${renderAnswerRow("中文释义", word.meaning || "还没有释义")}
+    ${renderAnswerRow("释义", word.meaning || "还没有释义")}
     ${word.partOfSpeech ? renderAnswerRow("词性", displayPartOfSpeech(word.partOfSpeech)) : ""}
     ${word.forms ? renderAnswerRow("变形 / 派生", word.forms, "ko") : ""}
   `;
@@ -277,8 +271,9 @@ function renderLibrary() {
 
   els.wordList.innerHTML = words.map((word) => {
     const card = word.reviewCards?.[0];
+    const stageClass = word.mastered ? "mastered" : card?.stage || "learning";
     return `
-      <article class="word-item" data-id="${word.id}">
+      <article class="word-item word-stage-${escapeHtml(stageClass)}" data-id="${word.id}">
         <div class="word-title-row">
           <strong lang="ko">${escapeHtml(word.korean)}</strong>
           <span class="word-meta">${escapeHtml(displayPartOfSpeech(word.partOfSpeech) || "未标注")}</span>
@@ -320,10 +315,18 @@ function saveWordFromForm(event) {
   };
 
   if (existing) {
-    Object.assign(existing, payload);
-    existing.mastered = Boolean(existing.mastered);
-    existing.updatedAt = nowIso();
-    toast("已更新这个词");
+    const duplicateAction = askDuplicateWordAction(existing);
+    if (duplicateAction === "cancel") {
+      toast("已取消保存，表单内容已保留。");
+      return;
+    }
+    if (duplicateAction === "append") {
+      appendToExistingWord(existing, payload);
+      toast("已补充到原词条");
+    } else {
+      replaceExistingWord(existing, payload);
+      toast("已替换原词条信息");
+    }
   } else {
     const createdAt = nowIso();
     state.words.push({
@@ -343,6 +346,59 @@ function saveWordFromForm(event) {
   renderAll();
 }
 
+function askDuplicateWordAction(word) {
+  const oldInfo = [
+    `韩语词条：${word.korean || "未填写"}`,
+    `中文释义：${word.meaning || "未填写"}`,
+    `词性：${displayPartOfSpeech(word.partOfSpeech) || "未填写"}`,
+    `发音：${word.pronunciation || "未填写"}`,
+    `变形 / 派生：${word.forms || "未填写"}`,
+    `备注：${word.notes || "未填写"}`,
+  ].join("\n");
+  const choice = window.prompt(
+    `词库里已经有这个词：\n\n${oldInfo}\n\n请选择：\nA. 补充到原词条\nB. 替换原词条\nC. 取消\n\n请输入 A / B / C：`,
+    "A",
+  );
+  const normalized = String(choice || "").trim().toUpperCase();
+  if (normalized === "A") return "append";
+  if (normalized === "B") return "replace";
+  return "cancel";
+}
+
+function appendToExistingWord(existing, payload) {
+  existing.meaning = appendUniqueText(existing.meaning, payload.meaning);
+  existing.notes = appendText(existing.notes, payload.notes);
+  existing.forms = appendUniqueText(existing.forms, payload.forms);
+  if (!existing.partOfSpeech && payload.partOfSpeech) {
+    existing.partOfSpeech = payload.partOfSpeech;
+  }
+  if (!existing.pronunciation && payload.pronunciation) {
+    existing.pronunciation = payload.pronunciation;
+  }
+  existing.mastered = Boolean(existing.mastered);
+  existing.updatedAt = nowIso();
+}
+
+function replaceExistingWord(existing, payload) {
+  Object.assign(existing, payload);
+  existing.mastered = Boolean(existing.mastered);
+  existing.updatedAt = nowIso();
+}
+
+function appendUniqueText(oldValue = "", newValue = "") {
+  const oldText = String(oldValue || "").trim();
+  const newText = String(newValue || "").trim();
+  if (!newText || oldText.includes(newText)) return oldText;
+  return appendText(oldText, newText);
+}
+
+function appendText(oldValue = "", newValue = "") {
+  const oldText = String(oldValue || "").trim();
+  const newText = String(newValue || "").trim();
+  if (!newText) return oldText;
+  return oldText ? `${oldText}\n${newText}` : newText;
+}
+
 function createKoToZhCard() {
   return {
     cardId: crypto.randomUUID(),
@@ -359,13 +415,15 @@ function createKoToZhCard() {
   };
 }
 
-function revealCurrent() {
+function revealCurrent(event) {
+  releaseButtonFocus(event);
   state.revealed = true;
   renderReview();
   keepReviewControlsInReach();
 }
 
-function reviewCurrent(result) {
+function reviewCurrent(result, event) {
+  releaseButtonFocus(event);
   const entry = state.dueCards[state.currentIndex];
   if (!entry) return;
 
@@ -573,13 +631,27 @@ function shuffle(items) {
 
 function keepReviewControlsInReach() {
   if (!$("#reviewView")?.classList.contains("active")) return;
-  requestAnimationFrame(() => {
-    $(".review-actions")?.scrollIntoView({
-      block: "end",
-      inline: "nearest",
-      behavior: "auto",
-    });
+  const scrollToReviewActions = () => {
+    const page = document.scrollingElement || document.documentElement;
+    const actions = $(".review-actions");
+    if (!actions) return;
+    const actionsBottom = actions.getBoundingClientRect().bottom + window.scrollY;
+    const targetTop = Math.max(0, actionsBottom - window.innerHeight + 96);
+    page.scrollTop = targetTop;
+    document.documentElement.scrollTop = targetTop;
+    document.body.scrollTop = targetTop;
+    window.scrollTo(0, targetTop);
+  };
+  [0, 16, 80, 180, 360, 700].forEach((delay) => {
+    window.setTimeout(() => requestAnimationFrame(scrollToReviewActions), delay);
   });
+}
+
+function releaseButtonFocus(event) {
+  event?.currentTarget?.blur?.();
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
 }
 
 function handleWordAction(event) {
@@ -999,24 +1071,29 @@ function setSyncing(syncing, message) {
 }
 
 function updateCloudStatus(message) {
+  let status = "ready";
   if (message) {
     els.syncStatus.textContent = message;
+    status = state.syncing ? "syncing" : "ready";
   } else if (!state.cloudReady) {
     els.syncStatus.textContent = "未配置云端";
+    status = "unconfigured";
   } else if (!state.user) {
     els.syncStatus.textContent = "云端已配置，未登录";
+    status = "signed-out";
   } else {
     const lastSyncAt = localStorage.getItem(LAST_SYNC_KEY);
     els.syncStatus.textContent = lastSyncAt
       ? `已登录：${state.user.email || "当前账号"} · 上次同步 ${formatDateTime(lastSyncAt)}`
       : `已登录：${state.user.email || "当前账号"}`;
+    status = lastSyncAt ? "synced" : "signed-in";
   }
+  els.syncStatus.dataset.status = status;
 
   const canUseCloud = Boolean(state.supabase && state.user && !state.syncing);
   els.signOutButton.disabled = !state.user || state.syncing;
   els.pullCloudButton.disabled = !canUseCloud;
   els.pushCloudButton.disabled = !canUseCloud;
-  els.importLegacyButton.disabled = !canUseCloud;
 }
 
 function cleanCurrentUrl() {
@@ -1042,6 +1119,7 @@ function switchTab(tabName) {
   els.tabViews.forEach((view) => {
     view.classList.toggle("active", view.dataset.view === tabName);
   });
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 }
 
 function firstLine(value) {

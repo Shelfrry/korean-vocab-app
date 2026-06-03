@@ -9,9 +9,11 @@
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Korean Vocabulary Studio</p>
-          <h1>韩语词卡</h1>
+        <div class="brand-header" aria-label="Otterly">
+          <img class="brand-header-image" src="./assets/otterly-header-original.png" alt="Otterly" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
+          <div class="brand-header-fallback" hidden>
+            <span class="brand-wordmark">OTTERLY</span>
+          </div>
         </div>
       </header>
 
@@ -33,7 +35,8 @@
             <small>已完成</small>
           </div>
           <div>
-            <div id="goalProgress">0</div>
+            <span id="goalProgress">0</span>
+            <small>已掌握</small>
           </div>
         </section>
 
@@ -41,7 +44,7 @@
           <div class="panel-head">
             <div>
               <h2>今日复习</h2>
-              <p id="reviewSubhead">还没有到期卡片时，可以先录入几个新词。</p>
+              <p id="reviewSubhead"></p>
             </div>
             <button id="nextReview" class="icon-button" title="换一张 / 随机加练" aria-label="换一张或随机加练">↻</button>
           </div>
@@ -69,42 +72,48 @@
             </div>
 
             <form id="wordForm" class="word-form">
-              <label for="wordInput">韩语单词</label>
-              <input id="wordInput" required lang="ko" autocomplete="off" placeholder="예: 기억하다" />
+              <div class="form-section">
+                <p class="form-section-title">基础信息</p>
+                <label for="wordInput">韩语单词</label>
+                <input id="wordInput" required lang="ko" autocomplete="off" placeholder="예: 기억하다" />
 
-              <label for="meaningInput">中文释义</label>
-              <textarea id="meaningInput" rows="4" placeholder="自己写中文意思、近义词或容易混淆的点"></textarea>
-
-              <label for="noteInput">我的例句 / 易混点</label>
-              <textarea id="noteInput" rows="3" placeholder="예: 기억이 나다 / 기억하다 的区别"></textarea>
-
-              <div class="form-grid">
-                <label>
-                  词性
-                  <select id="posInput">
-                    <option value="">未标注</option>
-                    <option value="명사">명사 名词</option>
-                    <option value="대명사">대명사 代词</option>
-                    <option value="수사">수사 数词</option>
-                    <option value="동사">동사 动词</option>
-                    <option value="형용사">형용사 形容词</option>
-                    <option value="관형사">관형사 冠形词</option>
-                    <option value="부사">부사 副词</option>
-                    <option value="조사">조사 助词</option>
-                    <option value="감탄사">감탄사 叹词</option>
-                    <option value="어미">어미 语尾</option>
-                    <option value="표현">표현 表达/短语</option>
-                    <option value="기타">기타 其他</option>
-                  </select>
-                </label>
-                <label>
-                  发音
-                  <input id="pronunciationInput" lang="ko" placeholder="기어카다" />
-                </label>
+                <div class="form-grid">
+                  <label>
+                    发音
+                    <input id="pronunciationInput" lang="ko" placeholder="기어카다" />
+                  </label>
+                  <label>
+                    词性
+                    <select id="posInput">
+                      <option value="">未标注</option>
+                      <option value="명사">명사 名词</option>
+                      <option value="대명사">대명사 代词</option>
+                      <option value="수사">수사 数词</option>
+                      <option value="동사">동사 动词</option>
+                      <option value="형용사">형용사 形容词</option>
+                      <option value="관형사">관형사 冠形词</option>
+                      <option value="부사">부사 副词</option>
+                      <option value="조사">조사 助词</option>
+                      <option value="감탄사">감탄사 叹词</option>
+                      <option value="어미">어미 语尾</option>
+                      <option value="표현">표현 表达/短语</option>
+                      <option value="기타">기타 其他</option>
+                    </select>
+                  </label>
+                </div>
               </div>
 
-              <label for="formsInput">变形 / 派生</label>
-              <textarea id="formsInput" rows="3" placeholder="예: 해요体、过去式、名词化、相关词"></textarea>
+              <div class="form-section">
+                <p class="form-section-title">释义与备注</p>
+                <label for="meaningInput">中文释义</label>
+                <textarea id="meaningInput" rows="4" placeholder="自己写中文意思、近义词或容易混淆的点"></textarea>
+
+                <label for="formsInput">变形 / 派生</label>
+                <textarea id="formsInput" rows="3" placeholder="예: 해요体、过去式、名词化、相关词"></textarea>
+
+                <label for="noteInput">例句及易混点</label>
+                <textarea id="noteInput" rows="3" placeholder="예: 기억이 나다 / 기억하다 的区别"></textarea>
+              </div>
 
               <button type="submit" class="primary-button">加入词库</button>
             </form>
@@ -136,19 +145,17 @@
 
       <section id="syncView" class="tab-view" data-view="sync">
         <section class="panel sync-panel" aria-labelledby="syncTitle">
-          <div class="panel-head">
+          <div class="panel-head sync-status-card">
             <div>
               <h2 id="syncTitle">云端同步</h2>
               <p id="syncStatus">未连接</p>
             </div>
           </div>
           <div class="sync-form">
-            <label for="supabaseUrlInput">Supabase URL</label>
-            <input id="supabaseUrlInput" autocomplete="off" placeholder="https://xxxx.supabase.co" />
-
-            <label for="supabaseAnonInput">Supabase anon key</label>
-            <input id="supabaseAnonInput" type="password" autocomplete="off" placeholder="eyJ..." />
-            <button type="button" id="saveCloudConfig" class="secondary-button">保存云配置</button>
+            <div class="sync-actions cloud-main-actions">
+              <button type="button" id="pullCloudButton" class="secondary-button" disabled>从云端下载</button>
+              <button type="button" id="pushCloudButton" class="primary-button" disabled>同步到云端</button>
+            </div>
 
             <label for="syncEmailInput">邮箱</label>
             <input id="syncEmailInput" type="email" autocomplete="email" placeholder="you@example.com" />
@@ -156,12 +163,19 @@
               <button type="button" id="sendLoginLink" class="secondary-button">发送登录邮件</button>
               <button type="button" id="refreshSessionButton" class="secondary-button">检查登录状态</button>
             </div>
-            <div class="sync-actions">
+            <div class="sync-actions account-actions">
               <button type="button" id="signOutButton" class="secondary-button" disabled>退出</button>
-              <button type="button" id="pullCloudButton" class="secondary-button" disabled>从云端拉取</button>
             </div>
-            <button type="button" id="importLegacyButton" class="secondary-button" disabled>一次性导入旧词库到 v2</button>
-            <button type="button" id="pushCloudButton" class="primary-button" disabled>同步到云端</button>
+
+            <details class="advanced-config">
+              <summary>高级配置</summary>
+              <label for="supabaseUrlInput">Supabase URL</label>
+              <input id="supabaseUrlInput" autocomplete="off" placeholder="https://xxxx.supabase.co" />
+
+              <label for="supabaseAnonInput">Supabase anon key</label>
+              <input id="supabaseAnonInput" type="password" autocomplete="off" placeholder="eyJ..." />
+              <button type="button" id="saveCloudConfig" class="secondary-button">保存云配置</button>
+            </details>
           </div>
         </section>
       </section>

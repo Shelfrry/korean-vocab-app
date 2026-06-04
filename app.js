@@ -206,7 +206,7 @@ function renderStats() {
   els.totalCount.textContent = state.words.length;
   els.dueCount.textContent = allDueCount;
   els.doneCount.textContent = doneToday;
-  els.goalProgress.textContent = `${mastered} / ${state.words.length}`;
+  els.goalProgress.textContent = mastered;
   els.masteredCount.textContent = mastered;
 }
 

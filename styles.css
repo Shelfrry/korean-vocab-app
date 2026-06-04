@@ -3883,3 +3883,13 @@ textarea::placeholder {
 .library-tools .import-button:hover {
   opacity: 0.9;
 }
+
+.review-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-head-actions .icon-button {
+  flex: 0 0 auto;
+}

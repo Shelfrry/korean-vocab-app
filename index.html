@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="application-name" content="Otterly" />
     <title>Otterly</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260604-otp" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./favicon.png?v=20260604-otp" />
-    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=20260604-otp" />
-    <link rel="stylesheet" href="./styles.css?v=20260604-otp" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260604-queue" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./favicon.png?v=20260604-queue" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=20260604-queue" />
+    <link rel="stylesheet" href="./styles.css?v=20260604-queue" />
   </head>
   <body>
     <main class="app-shell">
@@ -54,7 +54,10 @@
               <h2>今日复习</h2>
               <p id="reviewSubhead"></p>
             </div>
-            <button id="nextReview" class="icon-button" title="换一张 / 随机加练" aria-label="换一张或随机加练">↻</button>
+            <div class="review-head-actions">
+              <button id="addReviewCards" class="icon-button" title="再加入 5 张到期卡片" aria-label="再加入 5 张到期卡片">+</button>
+              <button id="nextReview" class="icon-button" title="随机换一张今日卡片" aria-label="随机换一张今日卡片">↻</button>
+            </div>
           </div>
 
           <article id="reviewCard" class="review-card empty">
@@ -194,6 +197,6 @@
       </section>
     </main>
 
-    <script type="module" src="./app.js?v=20260604-otp"></script>
+    <script type="module" src="./app.js?v=20260604-queue"></script>
   </body>
 </html>

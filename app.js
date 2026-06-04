@@ -52,6 +52,7 @@ const els = {
   reviewCard: $("#reviewCard"),
   reviewSubhead: $("#reviewSubhead"),
   nextReview: $("#nextReview"),
+  addReviewCards: $("#addReviewCards"),
   revealAnswer: $("#revealAnswer"),
   forgotButton: $("#forgotButton"),
   fuzzyButton: $("#fuzzyButton"),
@@ -89,6 +90,7 @@ els.fuzzyButton.addEventListener("click", (event) => reviewCurrent("fuzzy", even
 els.knownButton.addEventListener("click", (event) => reviewCurrent("known", event));
 els.easyButton.addEventListener("click", (event) => reviewCurrent("easy", event));
 els.nextReview.addEventListener("click", nextReviewCard);
+els.addReviewCards.addEventListener("click", addReviewCards);
 els.filterInput.addEventListener("input", (event) => {
   state.filter = event.target.value.trim().toLowerCase();
   renderLibrary();
@@ -698,28 +700,54 @@ function createZhToKoCard() {
 }
 
 function nextReviewCard() {
-  expandTodayQueue();
   if (state.dueCards.length === 0) {
     renderReview();
     return;
   }
-  state.currentIndex = (state.currentIndex + 1) % state.dueCards.length;
+  if (state.dueCards.length > 1) {
+    let nextIndex = state.currentIndex;
+    while (nextIndex === state.currentIndex) {
+      nextIndex = Math.floor(Math.random() * state.dueCards.length);
+    }
+    state.currentIndex = nextIndex;
+  }
+  state.revealed = false;
+  renderReview();
+  keepReviewControlsInReach();
+}
+
+function addReviewCards() {
+  const added = expandTodayQueue();
+  if (state.dueCards.length === 0) {
+    renderReview();
+    return;
+  }
+  if (added > 0) {
+    state.currentIndex = Math.max(0, state.dueCards.length - added);
+  }
   state.revealed = false;
   renderReview();
   keepReviewControlsInReach();
 }
 
 function expandTodayQueue() {
-  if (state.dueCards.length >= DAILY_CARD_MAX) return;
+  if (state.dueCards.length >= DAILY_CARD_MAX) {
+    toast("今日队列已经到 35 张上限");
+    return 0;
+  }
   const existingKeys = new Set(state.dueCards.map(cardKey));
   const slots = Math.min(REVIEW_QUEUE_INCREMENT, DAILY_CARD_MAX - state.dueCards.length);
   const additions = getDueCardEntries({ includeReviewedToday: false })
     .filter((entry) => !existingKeys.has(cardKey(entry)))
     .slice(0, slots);
-  if (additions.length === 0) return;
+  if (additions.length === 0) {
+    toast("没有更多到期卡片可以加入");
+    return 0;
+  }
   state.dueCards.push(...additions);
   state.dailyCardLimit = state.dueCards.length;
   toast(`已补充 ${additions.length} 张到今日队列`);
+  return additions.length;
 }
 
 function keepReviewControlsInReach() {

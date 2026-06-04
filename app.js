@@ -884,7 +884,7 @@ async function sendLoginLink() {
   const { error } = await state.supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: cleanCurrentUrl(),
+      shouldCreateUser: true,
     },
   });
 
@@ -892,7 +892,7 @@ async function sendLoginLink() {
     toast(`发送失败：${error.message}`);
     return;
   }
-  toast("登录邮件已发送，请去邮箱点链接");
+  toast("验证码已发送，请查看邮箱");
 }
 
 async function applyMagicLink() {
@@ -901,59 +901,33 @@ async function applyMagicLink() {
     return;
   }
 
-  const link = els.magicLinkInput.value.trim();
-  if (!link) {
-    toast("先粘贴邮箱登录链接");
+  const email = els.syncEmailInput.value.trim();
+  const token = els.magicLinkInput.value.trim();
+  if (!email) {
+    toast("先输入邮箱");
+    return;
+  }
+  if (!token) {
+    toast("先输入邮箱验证码");
     return;
   }
 
   try {
-    const params = authParamsFromLink(link);
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
-    const tokenHash = params.get("token_hash");
-    const token = params.get("token");
-    const type = params.get("type") || "magiclink";
-    let result;
-
-    if (accessToken && refreshToken) {
-      result = await state.supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-    } else if (tokenHash) {
-      result = await state.supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type,
-      });
-    } else if (token && els.syncEmailInput.value.trim()) {
-      result = await state.supabase.auth.verifyOtp({
-        email: els.syncEmailInput.value.trim(),
-        token,
-        type,
-      });
-    } else {
-      throw new Error("这个链接里没有找到可用的登录凭证");
-    }
+    const result = await state.supabase.auth.verifyOtp({
+      email,
+      token,
+      type: "email",
+    });
 
     if (result.error) throw result.error;
     state.user = result.data?.session?.user || result.data?.user || null;
     els.magicLinkInput.value = "";
     await refreshSession({ quiet: true });
     updateCloudStatus();
-    toast(state.user ? "已登录云端" : "登录链接已处理，请再点检查登录状态");
+    toast(state.user ? "已登录云端" : "验证码已处理，请再点检查登录状态");
   } catch (error) {
     toast(`登录失败：${error.message}`);
   }
-}
-
-function authParamsFromLink(link) {
-  const url = new URL(link);
-  const params = new URLSearchParams(url.search);
-  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
-  const hashParams = new URLSearchParams(hash);
-  hashParams.forEach((value, key) => params.set(key, value));
-  return params;
 }
 
 async function refreshSession(options = {}) {
@@ -1265,13 +1239,6 @@ function updateCloudStatus(message) {
   els.signOutButton.disabled = !state.user || state.syncing;
   els.pullCloudButton.disabled = !canUseCloud;
   els.pushCloudButton.disabled = !canUseCloud;
-}
-
-function cleanCurrentUrl() {
-  const url = new URL(window.location.href);
-  url.hash = "";
-  url.search = "";
-  return url.toString();
 }
 
 function formatDateTime(value) {

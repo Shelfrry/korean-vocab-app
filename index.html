@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="application-name" content="Otterly" />
     <title>Otterly</title>
-    <link rel="manifest" href="./manifest.webmanifest?v=20260604-rules" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./favicon.png?v=20260604-rules" />
-    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=20260604-rules" />
-    <link rel="stylesheet" href="./styles.css?v=20260604-rules" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260604-otp" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./favicon.png?v=20260604-otp" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=20260604-otp" />
+    <link rel="stylesheet" href="./styles.css?v=20260604-otp" />
   </head>
   <body>
     <main class="app-shell">
@@ -170,12 +170,12 @@
             <label for="syncEmailInput">邮箱</label>
             <input id="syncEmailInput" type="email" autocomplete="email" placeholder="you@example.com" />
             <div class="sync-actions">
-              <button type="button" id="sendLoginLink" class="secondary-button">发送登录邮件</button>
+              <button type="button" id="sendLoginLink" class="secondary-button">发送验证码</button>
               <button type="button" id="refreshSessionButton" class="secondary-button">检查登录状态</button>
             </div>
-            <label for="magicLinkInput">登录链接</label>
-            <input id="magicLinkInput" autocomplete="off" placeholder="在这里粘贴邮箱登录链接" />
-            <button type="button" id="applyMagicLinkButton" class="secondary-button">用登录链接完成登录</button>
+            <label for="magicLinkInput">邮箱验证码</label>
+            <input id="magicLinkInput" autocomplete="one-time-code" inputmode="numeric" maxlength="8" placeholder="输入邮件里的 6 位验证码" />
+            <button type="button" id="applyMagicLinkButton" class="secondary-button">用验证码登录</button>
             <div class="sync-actions account-actions">
               <button type="button" id="signOutButton" class="secondary-button" disabled>退出</button>
             </div>
@@ -194,6 +194,6 @@
       </section>
     </main>
 
-    <script type="module" src="./app.js?v=20260604-rules"></script>
+    <script type="module" src="./app.js?v=20260604-otp"></script>
   </body>
 </html>

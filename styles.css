@@ -3867,3 +3867,19 @@ textarea::placeholder {
     margin-bottom: -18px !important;
   }
 }
+
+.library-tools .active-sort {
+  background: #2ec4b6 !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+
+.library-tools .library-data-button,
+.library-tools .import-button {
+  opacity: 0.58;
+}
+
+.library-tools .library-data-button:hover,
+.library-tools .import-button:hover {
+  opacity: 0.9;
+}

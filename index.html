@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="application-name" content="Otterly" />
     <title>Otterly</title>
-    <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./favicon.png" />
-    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260604-rules" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./favicon.png?v=20260604-rules" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=20260604-rules" />
+    <link rel="stylesheet" href="./styles.css?v=20260604-rules" />
   </head>
   <body>
     <main class="app-shell">
@@ -35,12 +35,12 @@
       <section id="reviewView" class="tab-view active" data-view="review">
         <section class="review-dashboard" aria-label="今日复习概览">
           <div>
-            <span id="dueCount">0</span>
-            <small>待复习</small>
-          </div>
-          <div>
             <span id="doneCount">0</span>
             <small>已完成</small>
+          </div>
+          <div>
+            <span id="dueCount">0</span>
+            <small>待复习</small>
           </div>
           <div>
             <span id="goalProgress">0</span>
@@ -76,7 +76,7 @@
         <section class="entry-layout">
           <aside class="panel add-panel">
             <div class="panel-head">
-              <h2>录入新词</h2>
+              <h2 id="wordFormTitle">录入新词</h2>
             </div>
 
             <form id="wordForm" class="word-form">
@@ -123,7 +123,7 @@
                 <textarea id="noteInput" rows="3" placeholder="예: 기억이 나다 / 기억하다 的区别"></textarea>
               </div>
 
-              <button type="submit" class="primary-button">加入词库</button>
+              <button id="wordSubmitButton" type="submit" class="primary-button">加入词库</button>
             </form>
           </aside>
         </section>
@@ -139,9 +139,11 @@
               </div>
               <div class="library-tools">
                 <input id="filterInput" placeholder="搜索词库" />
-                <button id="exportButton" class="icon-button" title="导出数据" aria-label="导出数据">⇩</button>
+                <button id="sortOldestButton" class="icon-button" title="按最早录入排序" aria-label="按最早录入排序">↑</button>
+                <button id="sortNewestButton" class="icon-button active-sort" title="按最近录入排序" aria-label="按最近录入排序">↓</button>
+                <button id="exportButton" class="icon-button library-data-button" title="导出数据" aria-label="导出数据">导出</button>
                 <label class="icon-button import-button" title="导入数据" aria-label="导入数据">
-                  ⇧
+                  导入
                   <input id="importInput" type="file" accept="application/json" />
                 </label>
               </div>
@@ -192,6 +194,6 @@
       </section>
     </main>
 
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./app.js?v=20260604-rules"></script>
   </body>
 </html>

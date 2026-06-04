@@ -15,12 +15,16 @@ create table if not exists public.korean_vocab_words_v2 (
   notes text default '',
 
   mastered boolean not null default false,
+  placement_pending boolean not null default true,
   review_cards jsonb not null default '[]'::jsonb,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz
 );
+
+alter table public.korean_vocab_words_v2
+  add column if not exists placement_pending boolean not null default true;
 
 alter table public.korean_vocab_words_v2 enable row level security;
 

@@ -8,7 +8,9 @@ const SUPABASE_V2_TABLE = "korean_vocab_words_v2";
 const SUPABASE_LEGACY_TABLE = "vocab_cards";
 const DAY = 24 * 60 * 60 * 1000;
 const MINUTE = 60 * 1000;
-const DAILY_GOAL = 10;
+const DAILY_CARD_GOAL = 25;
+const DAILY_CARD_MAX = 35;
+const REVIEW_QUEUE_INCREMENT = 5;
 
 const $ = (selector) => document.querySelector(selector);
 const nowIso = () => new Date().toISOString();
@@ -19,6 +21,7 @@ const daysFromNow = (days) => new Date(Date.now() + days * DAY).toISOString();
 const state = {
   words: loadWords(),
   dueCards: [],
+  dailyCardLimit: DAILY_CARD_GOAL,
   currentIndex: 0,
   revealed: false,
   reviewMode: "due",
@@ -27,6 +30,8 @@ const state = {
   user: null,
   cloudReady: false,
   syncing: false,
+  editingWordId: null,
+  librarySortOrder: "newest",
 };
 
 const els = {
@@ -37,6 +42,8 @@ const els = {
   masteredCount: $("#masteredCount"),
   wordForm: $("#wordForm"),
   wordInput: $("#wordInput"),
+  wordFormTitle: $("#wordFormTitle"),
+  wordSubmitButton: $("#wordSubmitButton"),
   meaningInput: $("#meaningInput"),
   noteInput: $("#noteInput"),
   posInput: $("#posInput"),
@@ -51,6 +58,8 @@ const els = {
   knownButton: $("#knownButton"),
   easyButton: $("#easyButton"),
   filterInput: $("#filterInput"),
+  sortOldestButton: $("#sortOldestButton"),
+  sortNewestButton: $("#sortNewestButton"),
   exportButton: $("#exportButton"),
   importInput: $("#importInput"),
   wordList: $("#wordList"),
@@ -84,6 +93,8 @@ els.filterInput.addEventListener("input", (event) => {
   state.filter = event.target.value.trim().toLowerCase();
   renderLibrary();
 });
+els.sortOldestButton.addEventListener("click", () => setLibrarySortOrder("oldest"));
+els.sortNewestButton.addEventListener("click", () => setLibrarySortOrder("newest"));
 els.exportButton.addEventListener("click", exportWords);
 els.importInput.addEventListener("change", importWords);
 els.saveCloudConfig.addEventListener("click", saveCloudConfig);
@@ -116,6 +127,10 @@ function normalizeWords(words) {
       word.mastered = false;
       changed = true;
     }
+    if (typeof word.placementPending !== "boolean") {
+      word.placementPending = true;
+      changed = true;
+    }
     (word.reviewCards || []).forEach((card) => {
       if (!Array.isArray(card.reviewHistory)) {
         card.reviewHistory = [];
@@ -142,21 +157,44 @@ function renderAll() {
 }
 
 function rebuildDueCards() {
-  const now = Date.now();
   state.reviewMode = "due";
-  state.dueCards = state.words
-    .flatMap((word) => {
-      return (word.reviewCards || []).map((card) => ({ word, card }));
-    })
-    .filter(({ card }) => new Date(card.dueDate).getTime() <= now)
-    .sort((left, right) => {
-      return new Date(left.card.dueDate).getTime() - new Date(right.card.dueDate).getTime();
-    })
-    .slice(0, DAILY_GOAL);
+  state.dailyCardLimit = DAILY_CARD_GOAL;
+  state.dueCards = getDueCardEntries({ includeReviewedToday: false }).slice(0, state.dailyCardLimit);
 
   if (state.currentIndex >= state.dueCards.length) {
     state.currentIndex = 0;
   }
+}
+
+function getDueCardEntries(options = {}) {
+  const now = Date.now();
+  const includeReviewedToday = Boolean(options.includeReviewedToday);
+  return state.words
+    .flatMap((word) => {
+      return (word.reviewCards || []).map((card) => ({ word, card }));
+    })
+    .filter(({ card }) => {
+      const due = new Date(card.dueDate).getTime() <= now;
+      const reviewedToday = String(card.lastReviewedAt || "").startsWith(todayKey());
+      return due && (includeReviewedToday || !reviewedToday);
+    })
+    .sort(compareDueCards);
+}
+
+function compareDueCards(left, right) {
+  const leftForgot = left.card.lastResult === "forgot" ? 0 : 1;
+  const rightForgot = right.card.lastResult === "forgot" ? 0 : 1;
+  if (leftForgot !== rightForgot) return leftForgot - rightForgot;
+
+  const leftDirection = left.card.direction === "zh_to_ko" ? 0 : 1;
+  const rightDirection = right.card.direction === "zh_to_ko" ? 0 : 1;
+  if (leftDirection !== rightDirection) return leftDirection - rightDirection;
+
+  return new Date(left.card.dueDate).getTime() - new Date(right.card.dueDate).getTime();
+}
+
+function cardKey(entry) {
+  return entry.card.cardId || `${entry.word.id}:${entry.card.direction}`;
 }
 
 function renderStats() {
@@ -168,7 +206,7 @@ function renderStats() {
   els.totalCount.textContent = state.words.length;
   els.dueCount.textContent = allDueCount;
   els.doneCount.textContent = doneToday;
-  els.goalProgress.textContent = mastered;
+  els.goalProgress.textContent = `${mastered} / ${state.words.length}`;
   els.masteredCount.textContent = mastered;
 }
 
@@ -178,12 +216,12 @@ function renderReview() {
   els.reviewSubhead.textContent = state.reviewMode === "extra"
     ? `加练模式：随机显示 ${dueCount} 张卡片。`
     : dueCount
-    ? `今天默认显示 ${dueCount} 张到期卡片。`
-    : "还没有到期卡片时，可以先录入几个新词。";
+    ? `今日队列 ${dueCount} 张卡片。`
+    : "";
 
   if (!entry) {
     els.reviewCard.className = "review-card empty";
-    els.reviewCard.innerHTML = `<p class="empty-title">摩拳擦掌接着学吧</p><p>录入新词 or 继续复习</p>`;
+    els.reviewCard.innerHTML = `<p class="empty-title">今天没有到期卡片。</p><p>可以去录入页添加新词，或等待下一次复习。</p>`;
     setReviewButtons(false);
     return;
   }
@@ -265,7 +303,13 @@ function renderLibrary() {
       ].join(" ").toLowerCase();
       return !state.filter || haystack.includes(state.filter);
     })
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    .sort((a, b) => {
+      const compare = String(a.createdAt).localeCompare(String(b.createdAt));
+      return state.librarySortOrder === "oldest" ? compare : -compare;
+    });
+
+  els.sortOldestButton.classList.toggle("active-sort", state.librarySortOrder === "oldest");
+  els.sortNewestButton.classList.toggle("active-sort", state.librarySortOrder === "newest");
 
   if (words.length === 0) {
     els.wordList.innerHTML = `<p class="word-text">词库暂时是空的。先录入一个今天新学的词吧。</p>`;
@@ -302,7 +346,6 @@ function saveWordFromForm(event) {
   const korean = els.wordInput.value.trim();
   if (!korean) return;
 
-  const existing = state.words.find((word) => word.korean === korean);
   const payload = {
     korean,
     baseForm: korean,
@@ -317,6 +360,12 @@ function saveWordFromForm(event) {
     notes: els.noteInput.value.trim(),
   };
 
+  if (state.editingWordId) {
+    saveEditedWord(payload);
+    return;
+  }
+
+  const existing = state.words.find((word) => word.korean === korean);
   if (existing) {
     const duplicateAction = askDuplicateWordAction(existing);
     if (duplicateAction === "cancel") {
@@ -336,6 +385,7 @@ function saveWordFromForm(event) {
       id: crypto.randomUUID(),
       ...payload,
       mastered: false,
+      placementPending: false,
       createdAt,
       updatedAt: createdAt,
       reviewCards: [createKoToZhCard()],
@@ -347,6 +397,30 @@ function saveWordFromForm(event) {
   els.wordForm.reset();
   state.revealed = false;
   renderAll();
+}
+
+function saveEditedWord(payload) {
+  const target = state.words.find((word) => word.id === state.editingWordId);
+  if (!target) {
+    resetWordFormMode();
+    toast("没有找到要修改的词条");
+    return;
+  }
+
+  const duplicate = state.words.find((word) => word.id !== target.id && word.korean === payload.korean);
+  if (duplicate && !window.confirm("词库里已经有同名词条。仍然保存这次修改吗？")) {
+    toast("已取消修改，表单内容已保留。");
+    return;
+  }
+
+  replaceExistingWord(target, payload);
+  persist();
+  els.wordForm.reset();
+  resetWordFormMode();
+  state.revealed = false;
+  renderAll();
+  switchTab("library");
+  toast("修改已保存");
 }
 
 function askDuplicateWordAction(word) {
@@ -458,6 +532,15 @@ function applyReviewResult(word, card, result) {
   });
   card.reviewHistory = card.reviewHistory.slice(-10);
 
+  if (word.placementPending === true && card.direction === "ko_to_zh") {
+    if (!word.mastered) {
+      applyPlacementResult(word, card, result);
+      updateMasteredStatus(word);
+      return;
+    }
+    word.placementPending = false;
+  }
+
   if (card.stage === "learning") {
     applyLearningResult(card, result);
   } else {
@@ -474,6 +557,37 @@ function applyReviewResult(word, card, result) {
   }
 
   updateMasteredStatus(word);
+}
+
+function applyPlacementResult(word, card, result) {
+  word.placementPending = false;
+  if (result === "forgot") {
+    card.stage = "learning";
+    card.dueDate = daysFromNow(1);
+    card.intervalDays = 1;
+    card.correctStreak = 0;
+    card.wrongCount += 1;
+    return;
+  }
+  if (result === "fuzzy") {
+    card.stage = "learning";
+    card.dueDate = daysFromNow(3);
+    card.intervalDays = 3;
+    return;
+  }
+  if (result === "known") {
+    card.stage = "review";
+    card.dueDate = daysFromNow(14);
+    card.intervalDays = 14;
+    card.correctStreak = Math.max(Number(card.correctStreak) || 0, 1);
+    return;
+  }
+  if (result === "easy") {
+    card.stage = "review";
+    card.dueDate = daysFromNow(30);
+    card.intervalDays = 30;
+    card.correctStreak = Math.max(Number(card.correctStreak) || 0, 2);
+  }
 }
 
 function applyLearningResult(card, result) {
@@ -584,8 +698,9 @@ function createZhToKoCard() {
 }
 
 function nextReviewCard() {
-  if (state.dueCards.length < 2) {
-    startExtraPractice();
+  expandTodayQueue();
+  if (state.dueCards.length === 0) {
+    renderReview();
     return;
   }
   state.currentIndex = (state.currentIndex + 1) % state.dueCards.length;
@@ -594,42 +709,17 @@ function nextReviewCard() {
   keepReviewControlsInReach();
 }
 
-function startExtraPractice() {
-  const cards = getRandomPracticeCards();
-  if (cards.length === 0) {
-    toast("词库里还没有可以加练的卡片");
-    return;
-  }
-  state.reviewMode = "extra";
-  state.dueCards = cards;
-  state.currentIndex = 0;
-  state.revealed = false;
-  renderReview();
-  keepReviewControlsInReach();
-  toast(`已随机抽取 ${cards.length} 张加练卡`);
-}
-
-function getRandomPracticeCards() {
-  const today = todayKey();
-  const allCards = state.words.flatMap((word) => {
-    const cards = word.reviewCards || [];
-    const freshCards = cards.filter((card) => {
-      return !String(card.lastReviewedAt || "").startsWith(today);
-    });
-    const pool = freshCards.length ? freshCards : cards;
-    const card = shuffle(pool)[0];
-    return card ? [{ word, card }] : [];
-  });
-  return shuffle(allCards).slice(0, DAILY_GOAL);
-}
-
-function shuffle(items) {
-  const shuffled = [...items];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
-  }
-  return shuffled;
+function expandTodayQueue() {
+  if (state.dueCards.length >= DAILY_CARD_MAX) return;
+  const existingKeys = new Set(state.dueCards.map(cardKey));
+  const slots = Math.min(REVIEW_QUEUE_INCREMENT, DAILY_CARD_MAX - state.dueCards.length);
+  const additions = getDueCardEntries({ includeReviewedToday: false })
+    .filter((entry) => !existingKeys.has(cardKey(entry)))
+    .slice(0, slots);
+  if (additions.length === 0) return;
+  state.dueCards.push(...additions);
+  state.dailyCardLimit = state.dueCards.length;
+  toast(`已补充 ${additions.length} 张到今日队列`);
 }
 
 function keepReviewControlsInReach() {
@@ -668,6 +758,11 @@ function handleWordAction(event) {
   if (action === "delete") deleteWord(word);
 }
 
+function setLibrarySortOrder(order) {
+  state.librarySortOrder = order;
+  renderLibrary();
+}
+
 function speakKorean(word) {
   const utterance = new SpeechSynthesisUtterance(word);
   utterance.lang = "ko-KR";
@@ -676,14 +771,23 @@ function speakKorean(word) {
 }
 
 function editWord(word) {
+  state.editingWordId = word.id;
   els.wordInput.value = word.korean;
   els.meaningInput.value = word.meaning || "";
   els.noteInput.value = word.notes || "";
   els.posInput.value = word.partOfSpeech || "";
   els.pronunciationInput.value = word.pronunciation || "";
   els.formsInput.value = word.forms || "";
+  els.wordFormTitle.textContent = "修改词条";
+  els.wordSubmitButton.textContent = "保存修改";
   switchTab("entry");
   els.wordInput.focus();
+}
+
+function resetWordFormMode() {
+  state.editingWordId = null;
+  els.wordFormTitle.textContent = "录入新词";
+  els.wordSubmitButton.textContent = "加入词库";
 }
 
 function deleteWord(word) {
@@ -1037,6 +1141,7 @@ function toDbWord(word, userId) {
     source: word.source || "",
     notes: word.notes || "",
     mastered: Boolean(word.mastered),
+    placement_pending: typeof word.placementPending === "boolean" ? word.placementPending : true,
     review_cards: word.reviewCards || [],
     created_at: createdAt,
     updated_at: updatedAt,
@@ -1063,6 +1168,7 @@ function legacyRowToDbWord(row, userId) {
     source: "旧词库导入",
     notes: row.note || "",
     mastered: false,
+    placement_pending: true,
     review_cards: [createLegacyKoToZhCard(row)],
     created_at: createdAt,
     updated_at: updatedAt,
@@ -1101,6 +1207,7 @@ function fromDbWord(row) {
     source: row.source || "",
     notes: row.notes || "",
     mastered: Boolean(row.mastered),
+    placementPending: typeof row.placement_pending === "boolean" ? row.placement_pending : true,
     reviewCards: Array.isArray(row.review_cards) ? row.review_cards : [],
     createdAt: row.created_at || nowIso(),
     updatedAt: row.updated_at || row.created_at || nowIso(),

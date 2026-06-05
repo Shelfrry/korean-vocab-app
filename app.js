@@ -1,20 +1,22 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const STORAGE_KEY = "korean-vocab-v2";
+const DAILY_DECK_KEY = "korean-vocab-v2-daily-deck";
 const CLOUD_URL_KEY = "korean-vocab-supabase-url";
 const CLOUD_ANON_KEY = "korean-vocab-supabase-anon";
 const LAST_SYNC_KEY = "korean-vocab-v2-last-sync-at";
+const PENDING_DELETES_KEY = "korean-vocab-v2-pending-deletes";
 const SUPABASE_V2_TABLE = "korean_vocab_words_v2";
 const SUPABASE_LEGACY_TABLE = "vocab_cards";
 const DAY = 24 * 60 * 60 * 1000;
 const MINUTE = 60 * 1000;
 const DAILY_CARD_GOAL = 25;
 const DAILY_CARD_MAX = 35;
-const REVIEW_QUEUE_INCREMENT = 5;
 
 const $ = (selector) => document.querySelector(selector);
 const nowIso = () => new Date().toISOString();
-const todayKey = () => new Date().toISOString().slice(0, 10);
+const getBeijingDateKey = (date = new Date()) => new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const todayKey = () => getBeijingDateKey();
 const minutesFromNow = (minutes) => new Date(Date.now() + minutes * MINUTE).toISOString();
 const daysFromNow = (days) => new Date(Date.now() + days * DAY).toISOString();
 
@@ -22,7 +24,9 @@ const state = {
   words: loadWords(),
   dueCards: [],
   dailyCardLimit: DAILY_CARD_GOAL,
+  dailyDeck: null,
   currentIndex: 0,
+  cyclingCompletedDeck: false,
   revealed: false,
   reviewMode: "due",
   filter: "",
@@ -52,7 +56,6 @@ const els = {
   reviewCard: $("#reviewCard"),
   reviewSubhead: $("#reviewSubhead"),
   nextReview: $("#nextReview"),
-  addReviewCards: $("#addReviewCards"),
   revealAnswer: $("#revealAnswer"),
   forgotButton: $("#forgotButton"),
   fuzzyButton: $("#fuzzyButton"),
@@ -90,7 +93,6 @@ els.fuzzyButton.addEventListener("click", (event) => reviewCurrent("fuzzy", even
 els.knownButton.addEventListener("click", (event) => reviewCurrent("known", event));
 els.easyButton.addEventListener("click", (event) => reviewCurrent("easy", event));
 els.nextReview.addEventListener("click", nextReviewCard);
-els.addReviewCards.addEventListener("click", addReviewCards);
 els.filterInput.addEventListener("input", (event) => {
   state.filter = event.target.value.trim().toLowerCase();
   renderLibrary();
@@ -134,8 +136,16 @@ function normalizeWords(words) {
       changed = true;
     }
     (word.reviewCards || []).forEach((card) => {
+      if (!card.cardId) {
+        card.cardId = crypto.randomUUID();
+        changed = true;
+      }
       if (!Array.isArray(card.reviewHistory)) {
         card.reviewHistory = [];
+        changed = true;
+      }
+      if (typeof card.lastAppliedReviewDate !== "string") {
+        card.lastAppliedReviewDate = "";
         changed = true;
       }
     });
@@ -151,6 +161,27 @@ function persist() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.words));
 }
 
+function readPendingDeletes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PENDING_DELETES_KEY));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingDeletes(ids) {
+  localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify([...new Set(ids)]));
+}
+
+function addPendingDelete(id) {
+  savePendingDeletes([...readPendingDeletes(), id]);
+}
+
+function removePendingDelete(id) {
+  savePendingDeletes(readPendingDeletes().filter((entryId) => entryId !== id));
+}
+
 function renderAll() {
   rebuildDueCards();
   renderStats();
@@ -160,12 +191,90 @@ function renderAll() {
 
 function rebuildDueCards() {
   state.reviewMode = "due";
-  state.dailyCardLimit = DAILY_CARD_GOAL;
-  state.dueCards = getDueCardEntries({ includeReviewedToday: false }).slice(0, state.dailyCardLimit);
+  const deck = ensureDailyDeck();
+  state.dailyCardLimit = getDailyDeckCardIds(deck).length;
+  state.dueCards = getDailyDeckEntries(deck);
 
   if (state.currentIndex >= state.dueCards.length) {
     state.currentIndex = 0;
   }
+}
+
+function ensureDailyDeck() {
+  const dateKey = getBeijingDateKey();
+  const stored = readDailyDeck();
+  if (stored.dateKey === dateKey) {
+    state.dailyDeck = normalizeDailyDeck(stored);
+    return state.dailyDeck;
+  }
+  state.dailyDeck = createDailyDeck();
+  saveDailyDeck(state.dailyDeck);
+  return state.dailyDeck;
+}
+
+function readDailyDeck() {
+  try {
+    return JSON.parse(localStorage.getItem(DAILY_DECK_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function createDailyDeck() {
+  const now = nowIso();
+  const cardIds = getDueCardEntries({ includeReviewedToday: true })
+    .slice(0, DAILY_CARD_GOAL)
+    .map(cardKey);
+  return {
+    dateKey: getBeijingDateKey(),
+    cardIds,
+    expandedCardIds: [],
+    completedCardIds: [],
+    finalResults: {},
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function normalizeDailyDeck(deck) {
+  const normalized = {
+    dateKey: deck.dateKey || getBeijingDateKey(),
+    cardIds: Array.isArray(deck.cardIds) ? deck.cardIds : [],
+    expandedCardIds: Array.isArray(deck.expandedCardIds) ? deck.expandedCardIds : [],
+    completedCardIds: Array.isArray(deck.completedCardIds) ? deck.completedCardIds : [],
+    finalResults: deck.finalResults && typeof deck.finalResults === "object" ? deck.finalResults : {},
+    createdAt: deck.createdAt || nowIso(),
+    updatedAt: deck.updatedAt || deck.createdAt || nowIso(),
+  };
+  const validKeys = new Set(state.words.flatMap((word) => (word.reviewCards || []).map((card) => card.cardId)));
+  normalized.cardIds = uniqueExistingIds(normalized.cardIds, validKeys).slice(0, DAILY_CARD_GOAL);
+  normalized.expandedCardIds = uniqueExistingIds(normalized.expandedCardIds, validKeys)
+    .filter((cardId) => !normalized.cardIds.includes(cardId))
+    .slice(0, Math.max(0, DAILY_CARD_MAX - normalized.cardIds.length));
+  const deckKeys = new Set(getDailyDeckCardIds(normalized));
+  normalized.completedCardIds = uniqueExistingIds(normalized.completedCardIds, deckKeys);
+  normalized.finalResults = Object.fromEntries(Object.entries(normalized.finalResults).filter(([cardId]) => deckKeys.has(cardId)));
+  saveDailyDeck(normalized);
+  return normalized;
+}
+
+function uniqueExistingIds(cardIds, validKeys) {
+  return [...new Set(cardIds)].filter((cardId) => validKeys.has(cardId));
+}
+
+function saveDailyDeck(deck = state.dailyDeck) {
+  if (!deck) return;
+  deck.updatedAt = nowIso();
+  localStorage.setItem(DAILY_DECK_KEY, JSON.stringify(deck));
+}
+
+function getDailyDeckCardIds(deck = state.dailyDeck) {
+  if (!deck) return [];
+  return [...deck.cardIds, ...deck.expandedCardIds];
+}
+
+function getDailyDeckEntries(deck = state.dailyDeck) {
+  return getDailyDeckCardIds(deck).map(findCardEntryByKey).filter(Boolean);
 }
 
 function getDueCardEntries(options = {}) {
@@ -177,9 +286,9 @@ function getDueCardEntries(options = {}) {
     })
     .filter(({ card }) => {
       const due = new Date(card.dueDate).getTime() <= now;
-      const reviewedToday = String(card.lastReviewedAt || "").startsWith(todayKey());
-      return due && (includeReviewedToday || !reviewedToday);
+      return due && (includeReviewedToday || !isReviewedToday(card));
     })
+    .map((entry) => ({ ...entry, randomTieBreaker: Math.random() }))
     .sort(compareDueCards);
 }
 
@@ -192,17 +301,48 @@ function compareDueCards(left, right) {
   const rightDirection = right.card.direction === "zh_to_ko" ? 0 : 1;
   if (leftDirection !== rightDirection) return leftDirection - rightDirection;
 
-  return new Date(left.card.dueDate).getTime() - new Date(right.card.dueDate).getTime();
+  const leftDue = new Date(left.card.dueDate).getTime();
+  const rightDue = new Date(right.card.dueDate).getTime();
+  if (leftDue !== rightDue) return leftDue - rightDue;
+
+  return left.randomTieBreaker - right.randomTieBreaker;
 }
 
 function cardKey(entry) {
-  return entry.card.cardId || `${entry.word.id}:${entry.card.direction}`;
+  return entry.card.cardId;
+}
+
+function findCardEntryByKey(key) {
+  for (const word of state.words) {
+    for (const card of word.reviewCards || []) {
+      const entry = { word, card };
+      if (cardKey(entry) === key) return entry;
+    }
+  }
+  return null;
+}
+
+function isReviewedToday(card) {
+  if (!card.lastReviewedAt) return false;
+  const reviewedAt = new Date(card.lastReviewedAt);
+  return !Number.isNaN(reviewedAt.getTime()) && getBeijingDateKey(reviewedAt) === todayKey();
+}
+
+function shuffleEntries(entries) {
+  const shuffled = [...entries];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
 }
 
 function renderStats() {
+  const deck = ensureDailyDeck();
+  const deckCardIds = new Set(getDailyDeckCardIds(deck));
   const allCards = state.words.flatMap((word) => word.reviewCards || []);
   const allDueCount = allCards.filter((card) => new Date(card.dueDate).getTime() <= Date.now()).length;
-  const doneToday = allCards.filter((card) => String(card.lastReviewedAt || "").startsWith(todayKey())).length;
+  const doneToday = deck.completedCardIds.filter((cardId) => deckCardIds.has(cardId)).length;
   const mastered = state.words.filter((word) => word.mastered).length;
 
   els.totalCount.textContent = state.words.length;
@@ -213,17 +353,28 @@ function renderStats() {
 }
 
 function renderReview() {
-  const entry = state.dueCards[state.currentIndex];
+  const displayEntries = getReviewDisplayEntries();
+  if (state.currentIndex >= displayEntries.length) {
+    state.currentIndex = 0;
+  }
+  const entry = displayEntries[state.currentIndex];
   const dueCount = state.dueCards.length;
   els.reviewSubhead.textContent = state.reviewMode === "extra"
     ? `加练模式：随机显示 ${dueCount} 张卡片。`
     : dueCount
-    ? `今日队列 ${dueCount} 张卡片。`
+    ? `今日固定牌组 ${dueCount} 张卡片。`
     : "";
+
+  if (state.dueCards.length === 0) {
+    els.reviewCard.className = "review-card empty";
+    els.reviewCard.innerHTML = `<p class="empty-title">今天没有到期卡片。</p><p>可以去录入页添加新词，或等待下一次复习。</p>`;
+    setReviewButtons(false);
+    return;
+  }
 
   if (!entry) {
     els.reviewCard.className = "review-card empty";
-    els.reviewCard.innerHTML = `<p class="empty-title">今天没有到期卡片。</p><p>可以去录入页添加新词，或等待下一次复习。</p>`;
+    els.reviewCard.innerHTML = `<p class="empty-title">今日卡片已完成。</p><p>点击刷新按钮在今天的卡片里再过一遍。</p>`;
     setReviewButtons(false);
     return;
   }
@@ -253,6 +404,22 @@ function renderReview() {
   `;
   $("#speakCurrentButton")?.addEventListener("click", () => speakKorean(word.korean));
   setReviewButtons(true);
+}
+
+function getReviewDisplayEntries() {
+  const deck = ensureDailyDeck();
+  const completed = new Set(deck.completedCardIds);
+  const incompleteEntries = state.dueCards.filter((entry) => !completed.has(cardKey(entry)));
+  if (incompleteEntries.length > 0) return incompleteEntries;
+  return state.cyclingCompletedDeck ? state.dueCards : [];
+}
+
+function getCurrentReviewEntry() {
+  const entries = getReviewDisplayEntries();
+  if (state.currentIndex >= entries.length) {
+    state.currentIndex = 0;
+  }
+  return entries[state.currentIndex] || null;
 }
 
 function renderKoToZhAnswer(word) {
@@ -383,7 +550,7 @@ function saveWordFromForm(event) {
     }
   } else {
     const createdAt = nowIso();
-    state.words.push({
+    const newWord = {
       id: crypto.randomUUID(),
       ...payload,
       mastered: false,
@@ -391,7 +558,9 @@ function saveWordFromForm(event) {
       createdAt,
       updatedAt: createdAt,
       reviewCards: [createKoToZhCard()],
-    });
+    };
+    state.words.push(newWord);
+    addNewWordToDailyDeck(newWord);
     toast("已保存，已加入今日复习。");
   }
 
@@ -423,6 +592,15 @@ function saveEditedWord(payload) {
   renderAll();
   switchTab("library");
   toast("修改已保存");
+}
+
+function addNewWordToDailyDeck(word) {
+  const deck = ensureDailyDeck();
+  if (getDailyDeckCardIds(deck).length >= DAILY_CARD_MAX) return;
+  const cardId = word.reviewCards?.[0]?.cardId;
+  if (!cardId || getDailyDeckCardIds(deck).includes(cardId)) return;
+  deck.expandedCardIds.push(cardId);
+  saveDailyDeck(deck);
 }
 
 function askDuplicateWordAction(word) {
@@ -490,6 +668,7 @@ function createKoToZhCard() {
     wrongCount: 0,
     lastResult: "",
     lastReviewedAt: "",
+    lastAppliedReviewDate: "",
     reviewHistory: [],
   };
 }
@@ -503,21 +682,42 @@ function revealCurrent(event) {
 
 function reviewCurrent(result, event) {
   releaseButtonFocus(event);
-  const entry = state.dueCards[state.currentIndex];
+  if (refreshDailyDeckIfNeeded()) return;
+  const entry = getCurrentReviewEntry();
   if (!entry) return;
 
-  applyReviewResult(entry.word, entry.card, result);
+  recordDailyDeckResult(cardKey(entry), result);
+  if (canApplyLongTermReview(entry.card)) {
+    applyReviewResult(entry.word, entry.card, result);
+    entry.card.lastAppliedReviewDate = todayKey();
+  }
   entry.word.updatedAt = nowIso();
   persist();
   state.revealed = false;
-  state.dueCards.splice(state.currentIndex, 1);
-  if (state.currentIndex >= state.dueCards.length) {
+  state.cyclingCompletedDeck = false;
+  const nextEntries = getReviewDisplayEntries();
+  if (nextEntries.length > 1) {
+    state.currentIndex = randomReviewIndex(nextEntries);
+  } else {
     state.currentIndex = 0;
   }
   renderStats();
   renderReview();
   renderLibrary();
   keepReviewControlsInReach();
+}
+
+function recordDailyDeckResult(cardId, result) {
+  const deck = ensureDailyDeck();
+  if (!deck.completedCardIds.includes(cardId)) {
+    deck.completedCardIds.push(cardId);
+  }
+  deck.finalResults[cardId] = result;
+  saveDailyDeck(deck);
+}
+
+function canApplyLongTermReview(card) {
+  return card.lastAppliedReviewDate !== todayKey();
 }
 
 function applyReviewResult(word, card, result) {
@@ -543,6 +743,11 @@ function applyReviewResult(word, card, result) {
     word.placementPending = false;
   }
 
+  if (word.mastered) {
+    applyMasteredReviewResult(word, card, result);
+    return;
+  }
+
   if (card.stage === "learning") {
     applyLearningResult(card, result);
   } else {
@@ -559,6 +764,30 @@ function applyReviewResult(word, card, result) {
   }
 
   updateMasteredStatus(word);
+}
+
+function applyMasteredReviewResult(word, card, result) {
+  if (result === "forgot") {
+    word.mastered = false;
+    card.stage = "review";
+    card.intervalDays = 1;
+    card.dueDate = daysFromNow(1);
+    card.correctStreak = 0;
+    card.wrongCount += 1;
+    return;
+  }
+
+  if (result === "fuzzy") {
+    word.mastered = false;
+    card.stage = "review";
+    card.intervalDays = 3;
+    card.dueDate = daysFromNow(3);
+    card.correctStreak = Math.max(0, (Number(card.correctStreak) || 0) - 1);
+    return;
+  }
+
+  card.stage = "mastered";
+  applyReviewStageResult(card, result);
 }
 
 function applyPlacementResult(word, card, result) {
@@ -695,59 +924,79 @@ function createZhToKoCard() {
     wrongCount: 0,
     lastResult: "",
     lastReviewedAt: "",
+    lastAppliedReviewDate: "",
     reviewHistory: [],
   };
 }
 
 function nextReviewCard() {
+  if (refreshDailyDeckIfNeeded()) return;
   if (state.dueCards.length === 0) {
     renderReview();
     return;
   }
-  if (state.dueCards.length > 1) {
-    let nextIndex = state.currentIndex;
-    while (nextIndex === state.currentIndex) {
-      nextIndex = Math.floor(Math.random() * state.dueCards.length);
-    }
-    state.currentIndex = nextIndex;
-  }
-  state.revealed = false;
-  renderReview();
-  keepReviewControlsInReach();
-}
-
-function addReviewCards() {
-  const added = expandTodayQueue();
-  if (state.dueCards.length === 0) {
-    renderReview();
-    return;
-  }
+  const added = expandDailyDeck();
   if (added > 0) {
-    state.currentIndex = Math.max(0, state.dueCards.length - added);
+    state.cyclingCompletedDeck = false;
+    const addedIndex = getReviewDisplayEntries().findIndex((entry) => cardKey(entry) === added);
+    state.currentIndex = addedIndex >= 0 ? addedIndex : 0;
+  } else {
+    const displayEntries = getReviewDisplayEntries();
+    if (displayEntries.length === 0) {
+      state.cyclingCompletedDeck = true;
+    }
+    const nextEntries = getReviewDisplayEntries();
+    if (nextEntries.length > 1) {
+      state.currentIndex = randomReviewIndex(nextEntries);
+    } else {
+      state.currentIndex = 0;
+    }
   }
   state.revealed = false;
   renderReview();
   keepReviewControlsInReach();
 }
 
-function expandTodayQueue() {
-  if (state.dueCards.length >= DAILY_CARD_MAX) {
+function randomReviewIndex(entries = getReviewDisplayEntries()) {
+  if (entries.length <= 1) return 0;
+  let nextIndex = state.currentIndex;
+  while (nextIndex === state.currentIndex) {
+    nextIndex = Math.floor(Math.random() * entries.length);
+  }
+  return nextIndex;
+}
+
+function refreshDailyDeckIfNeeded() {
+  if (readDailyDeck().dateKey === todayKey()) return false;
+  state.currentIndex = 0;
+  state.revealed = false;
+  state.cyclingCompletedDeck = false;
+  rebuildDueCards();
+  renderStats();
+  renderReview();
+  return true;
+}
+
+function expandDailyDeck() {
+  const deck = ensureDailyDeck();
+  if (getDailyDeckCardIds(deck).length >= DAILY_CARD_MAX) {
     toast("今日队列已经到 35 张上限");
-    return 0;
+    return "";
   }
-  const existingKeys = new Set(state.dueCards.map(cardKey));
-  const slots = Math.min(REVIEW_QUEUE_INCREMENT, DAILY_CARD_MAX - state.dueCards.length);
-  const additions = getDueCardEntries({ includeReviewedToday: false })
-    .filter((entry) => !existingKeys.has(cardKey(entry)))
-    .slice(0, slots);
-  if (additions.length === 0) {
+  const existingKeys = new Set(getDailyDeckCardIds(deck));
+  const addition = getDueCardEntries({ includeReviewedToday: true })
+    .find((entry) => !existingKeys.has(cardKey(entry)));
+  if (!addition) {
     toast("没有更多到期卡片可以加入");
-    return 0;
+    return "";
   }
-  state.dueCards.push(...additions);
-  state.dailyCardLimit = state.dueCards.length;
-  toast(`已补充 ${additions.length} 张到今日队列`);
-  return additions.length;
+  const addedCardId = cardKey(addition);
+  deck.expandedCardIds.push(addedCardId);
+  saveDailyDeck(deck);
+  state.dueCards = getDailyDeckEntries(deck);
+  state.dailyCardLimit = getDailyDeckCardIds(deck).length;
+  toast("已补充 1 张到今日队列");
+  return addedCardId;
 }
 
 function keepReviewControlsInReach() {
@@ -818,12 +1067,26 @@ function resetWordFormMode() {
   els.wordSubmitButton.textContent = "加入词库";
 }
 
-function deleteWord(word) {
+async function deleteWord(word) {
+  if (!window.confirm(`确定删除「${word.korean}」吗？`)) return;
   state.words = state.words.filter((entry) => entry.id !== word.id);
   persist();
   state.revealed = false;
   renderAll();
   toast("已删除");
+
+  if (state.supabase && state.user) {
+    const { error } = await softDeleteCloudWord(word.id);
+    if (error) {
+      addPendingDelete(word.id);
+      toast("本地已删除，云端删除失败，请稍后同步检查");
+    } else {
+      removePendingDelete(word.id);
+    }
+    return;
+  }
+
+  addPendingDelete(word.id);
 }
 
 function exportWords() {
@@ -992,16 +1255,25 @@ async function syncToCloudV2() {
   if (!window.confirm("这会将当前本地新版词库同步到云端 v2，是否继续？")) return;
 
   const words = loadWords();
-  if (words.length === 0) {
+  const pendingDeletedIds = readPendingDeletes();
+  if (words.length === 0 && pendingDeletedIds.length === 0) {
     toast("本地新版词库为空");
     return;
   }
 
   setSyncing(true, "正在同步到云端 v2...");
+  const pendingDeleteError = await processPendingDeletes();
+  if (pendingDeleteError) {
+    setSyncing(false, `同步失败：待删除词条处理失败：${pendingDeleteError.message}`);
+    return;
+  }
+
   const rows = words.map((word) => toDbWord(word, state.user.id));
-  const { error } = await state.supabase
-    .from(SUPABASE_V2_TABLE)
-    .upsert(rows, { onConflict: "id" });
+  const { error } = rows.length
+    ? await state.supabase
+      .from(SUPABASE_V2_TABLE)
+      .upsert(rows, { onConflict: "id" })
+    : { error: null };
 
   if (error) {
     setSyncing(false, `同步失败：${error.message}`);
@@ -1013,6 +1285,33 @@ async function syncToCloudV2() {
   setSyncing(false);
   updateCloudStatus(`已同步到云端 v2：${formatDateTime(syncedAt)}`);
   toast("已同步到云端 v2");
+}
+
+async function processPendingDeletes() {
+  const ids = readPendingDeletes();
+  if (ids.length === 0) return null;
+
+  const remaining = [];
+  for (const id of ids) {
+    const { error } = await softDeleteCloudWord(id);
+    if (error) {
+      remaining.push(id);
+    }
+  }
+  savePendingDeletes(remaining);
+  return remaining.length > 0 ? new Error("部分删除未完成") : null;
+}
+
+async function softDeleteCloudWord(id) {
+  const timestamp = nowIso();
+  return state.supabase
+    .from(SUPABASE_V2_TABLE)
+    .update({
+      deleted_at: timestamp,
+      updated_at: timestamp,
+    })
+    .eq("id", id)
+    .eq("user_id", state.user.id);
 }
 
 async function restoreFromCloudV2() {
@@ -1190,6 +1489,7 @@ function createLegacyKoToZhCard(row) {
     wrongCount: 0,
     lastResult: "",
     lastReviewedAt: "",
+    lastAppliedReviewDate: "",
     reviewHistory: [],
   };
 }

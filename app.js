@@ -10,7 +10,7 @@ const SUPABASE_V2_TABLE = "korean_vocab_words_v2";
 const SUPABASE_LEGACY_TABLE = "vocab_cards";
 const DAY = 24 * 60 * 60 * 1000;
 const MINUTE = 60 * 1000;
-const DAILY_CARD_GOAL = 25;
+const DAILY_CARD_GOAL = 35;
 const DAILY_CARD_MAX = 35;
 
 const $ = (selector) => document.querySelector(selector);
@@ -27,6 +27,8 @@ const state = {
   dailyDeck: null,
   currentIndex: 0,
   cyclingCompletedDeck: false,
+  reviewCycleCardIds: [],
+  reviewCycleCompletedCardIds: [],
   revealed: false,
   reviewMode: "due",
   filter: "",
@@ -248,6 +250,14 @@ function normalizeDailyDeck(deck) {
   };
   const validKeys = new Set(state.words.flatMap((word) => (word.reviewCards || []).map((card) => card.cardId)));
   normalized.cardIds = uniqueExistingIds(normalized.cardIds, validKeys).slice(0, DAILY_CARD_GOAL);
+  if (normalized.cardIds.length < DAILY_CARD_GOAL) {
+    const existingKeys = new Set(normalized.cardIds);
+    const additions = getDueCardEntries({ includeReviewedToday: true })
+      .map(cardKey)
+      .filter((cardId) => validKeys.has(cardId) && !existingKeys.has(cardId))
+      .slice(0, DAILY_CARD_GOAL - normalized.cardIds.length);
+    normalized.cardIds.push(...additions);
+  }
   normalized.expandedCardIds = uniqueExistingIds(normalized.expandedCardIds, validKeys)
     .filter((cardId) => !normalized.cardIds.includes(cardId))
     .slice(0, Math.max(0, DAILY_CARD_MAX - normalized.cardIds.length));
@@ -408,10 +418,13 @@ function renderReview() {
 
 function getReviewDisplayEntries() {
   const deck = ensureDailyDeck();
+  if (state.cyclingCompletedDeck) {
+    return getCompletedDeckCycleEntries();
+  }
   const completed = new Set(deck.completedCardIds);
   const incompleteEntries = state.dueCards.filter((entry) => !completed.has(cardKey(entry)));
   if (incompleteEntries.length > 0) return incompleteEntries;
-  return state.cyclingCompletedDeck ? state.dueCards : [];
+  return [];
 }
 
 function getCurrentReviewEntry() {
@@ -560,8 +573,7 @@ function saveWordFromForm(event) {
       reviewCards: [createKoToZhCard()],
     };
     state.words.push(newWord);
-    addNewWordToDailyDeck(newWord);
-    toast("已保存，已加入今日复习。");
+    toast("已保存，已加入词库。");
   }
 
   persist();
@@ -592,15 +604,6 @@ function saveEditedWord(payload) {
   renderAll();
   switchTab("library");
   toast("修改已保存");
-}
-
-function addNewWordToDailyDeck(word) {
-  const deck = ensureDailyDeck();
-  if (getDailyDeckCardIds(deck).length >= DAILY_CARD_MAX) return;
-  const cardId = word.reviewCards?.[0]?.cardId;
-  if (!cardId || getDailyDeckCardIds(deck).includes(cardId)) return;
-  deck.expandedCardIds.push(cardId);
-  saveDailyDeck(deck);
 }
 
 function askDuplicateWordAction(word) {
@@ -685,18 +688,27 @@ function reviewCurrent(result, event) {
   if (refreshDailyDeckIfNeeded()) return;
   const entry = getCurrentReviewEntry();
   if (!entry) return;
+  const wasCyclingCompletedDeck = state.cyclingCompletedDeck;
 
-  recordDailyDeckResult(cardKey(entry), result);
+  const reviewedCardId = cardKey(entry);
+  recordDailyDeckResult(reviewedCardId, result);
+  if (wasCyclingCompletedDeck) {
+    recordCompletedDeckCycleResult(reviewedCardId);
+  }
   if (canApplyLongTermReview(entry.card)) {
     applyReviewResult(entry.word, entry.card, result);
     entry.card.lastAppliedReviewDate = todayKey();
+  } else {
+    applySameDayFinalResult(entry.word, entry.card, result);
   }
   entry.word.updatedAt = nowIso();
   persist();
   state.revealed = false;
-  state.cyclingCompletedDeck = false;
+  state.cyclingCompletedDeck = wasCyclingCompletedDeck;
   const nextEntries = getReviewDisplayEntries();
-  if (nextEntries.length > 1) {
+  if (state.cyclingCompletedDeck) {
+    state.currentIndex = 0;
+  } else if (nextEntries.length > 1) {
     state.currentIndex = randomReviewIndex(nextEntries);
   } else {
     state.currentIndex = 0;
@@ -716,8 +728,50 @@ function recordDailyDeckResult(cardId, result) {
   saveDailyDeck(deck);
 }
 
+function startCompletedDeckCycle() {
+  state.cyclingCompletedDeck = true;
+  state.reviewCycleCardIds = shuffleEntries(state.dueCards).map(cardKey);
+  state.reviewCycleCompletedCardIds = [];
+  state.currentIndex = 0;
+}
+
+function getCompletedDeckCycleEntries() {
+  const completed = new Set(state.reviewCycleCompletedCardIds);
+  return state.reviewCycleCardIds
+    .filter((cardId) => !completed.has(cardId))
+    .map(findCardEntryByKey)
+    .filter(Boolean);
+}
+
+function recordCompletedDeckCycleResult(cardId) {
+  if (!state.reviewCycleCompletedCardIds.includes(cardId)) {
+    state.reviewCycleCompletedCardIds.push(cardId);
+  }
+}
+
+function resetCompletedDeckCycle() {
+  state.cyclingCompletedDeck = false;
+  state.reviewCycleCardIds = [];
+  state.reviewCycleCompletedCardIds = [];
+}
+
 function canApplyLongTermReview(card) {
   return card.lastAppliedReviewDate !== todayKey();
+}
+
+function applySameDayFinalResult(word, card, result) {
+  card.lastResult = result;
+  card.lastReviewedAt = nowIso();
+
+  if (card.stage === "learning") {
+    applyLearningScheduleOnly(card, result);
+  } else {
+    applyReviewScheduleOnly(card, result);
+  }
+
+  if (word.mastered && (result === "known" || result === "easy")) {
+    card.stage = "mastered";
+  }
 }
 
 function applyReviewResult(word, card, result) {
@@ -847,6 +901,28 @@ function applyLearningResult(card, result) {
   }
 }
 
+function applyLearningScheduleOnly(card, result) {
+  if (result === "forgot") {
+    card.dueDate = minutesFromNow(10);
+    card.intervalDays = 0;
+    return;
+  }
+  if (result === "fuzzy") {
+    card.dueDate = daysFromNow(1);
+    card.intervalDays = 1;
+    return;
+  }
+  if (result === "known") {
+    card.dueDate = daysFromNow(3);
+    card.intervalDays = 3;
+    return;
+  }
+  if (result === "easy") {
+    card.dueDate = daysFromNow(5);
+    card.intervalDays = 5;
+  }
+}
+
 function applyReviewStageResult(card, result) {
   if (result === "forgot") {
     card.intervalDays = 1;
@@ -867,6 +943,26 @@ function applyReviewStageResult(card, result) {
   if (result === "easy") {
     card.intervalDays = clampInterval(Math.ceil(current * 3), card);
     card.correctStreak += 1;
+  }
+  card.dueDate = daysFromNow(card.intervalDays);
+}
+
+function applyReviewScheduleOnly(card, result) {
+  if (result === "forgot") {
+    card.intervalDays = 1;
+    card.dueDate = daysFromNow(1);
+    return;
+  }
+
+  const current = Math.max(1, Number(card.intervalDays) || 1);
+  if (result === "fuzzy") {
+    card.intervalDays = clampInterval(Math.max(2, Math.ceil(current * 1.2)), card);
+  }
+  if (result === "known") {
+    card.intervalDays = clampInterval(Math.ceil(current * 2.2), card);
+  }
+  if (result === "easy") {
+    card.intervalDays = clampInterval(Math.ceil(current * 3), card);
   }
   card.dueDate = daysFromNow(card.intervalDays);
 }
@@ -935,22 +1031,17 @@ function nextReviewCard() {
     renderReview();
     return;
   }
-  const added = expandDailyDeck();
-  if (added > 0) {
-    state.cyclingCompletedDeck = false;
-    const addedIndex = getReviewDisplayEntries().findIndex((entry) => cardKey(entry) === added);
-    state.currentIndex = addedIndex >= 0 ? addedIndex : 0;
+  const displayEntries = getReviewDisplayEntries();
+  if (displayEntries.length === 0) {
+    startCompletedDeckCycle();
+  }
+  const nextEntries = getReviewDisplayEntries();
+  if (state.cyclingCompletedDeck) {
+    state.currentIndex = 0;
+  } else if (nextEntries.length > 1) {
+    state.currentIndex = randomReviewIndex(nextEntries);
   } else {
-    const displayEntries = getReviewDisplayEntries();
-    if (displayEntries.length === 0) {
-      state.cyclingCompletedDeck = true;
-    }
-    const nextEntries = getReviewDisplayEntries();
-    if (nextEntries.length > 1) {
-      state.currentIndex = randomReviewIndex(nextEntries);
-    } else {
-      state.currentIndex = 0;
-    }
+    state.currentIndex = 0;
   }
   state.revealed = false;
   renderReview();
@@ -970,33 +1061,11 @@ function refreshDailyDeckIfNeeded() {
   if (readDailyDeck().dateKey === todayKey()) return false;
   state.currentIndex = 0;
   state.revealed = false;
-  state.cyclingCompletedDeck = false;
+  resetCompletedDeckCycle();
   rebuildDueCards();
   renderStats();
   renderReview();
   return true;
-}
-
-function expandDailyDeck() {
-  const deck = ensureDailyDeck();
-  if (getDailyDeckCardIds(deck).length >= DAILY_CARD_MAX) {
-    toast("今日队列已经到 35 张上限");
-    return "";
-  }
-  const existingKeys = new Set(getDailyDeckCardIds(deck));
-  const addition = getDueCardEntries({ includeReviewedToday: true })
-    .find((entry) => !existingKeys.has(cardKey(entry)));
-  if (!addition) {
-    toast("没有更多到期卡片可以加入");
-    return "";
-  }
-  const addedCardId = cardKey(addition);
-  deck.expandedCardIds.push(addedCardId);
-  saveDailyDeck(deck);
-  state.dueCards = getDailyDeckEntries(deck);
-  state.dailyCardLimit = getDailyDeckCardIds(deck).length;
-  toast("已补充 1 张到今日队列");
-  return addedCardId;
 }
 
 function keepReviewControlsInReach() {

@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2EC4B6" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Otterly" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="application-name" content="Otterly" />
+    <title>Otterly</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=20260605-daily-deck" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./favicon.png?v=20260605-daily-deck" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=20260605-daily-deck" />
+    <link rel="stylesheet" href="./styles.css?v=20260605-daily-deck" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand-header" aria-label="Otterly">
+          <img class="brand-header-image" src="./assets/banner-today.png" alt="Otterly" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
+          <div class="brand-header-fallback" hidden>
+            <span class="brand-wordmark">OTTERLY</span>
+          </div>
+        </div>
+      </header>
+
+      <nav class="tab-bar" aria-label="功能导航">
+        <button type="button" class="tab-button active" data-tab="review">今日</button>
+        <button type="button" class="tab-button" data-tab="library">词库</button>
+        <button type="button" class="tab-button" data-tab="grammar">语法</button>
+        <button type="button" class="tab-button" data-tab="sync">同步</button>
+      </nav>
+
+      <section id="reviewView" class="tab-view active" data-view="review">
+        <section class="review-dashboard" aria-label="今日复习概览">
+          <div>
+            <span id="doneCount">0</span>
+            <small>已完成</small>
+          </div>
+          <div>
+            <span id="dueCount">0</span>
+            <small>待复习</small>
+          </div>
+          <div>
+            <span id="goalProgress">0</span>
+            <small>已掌握</small>
+          </div>
+        </section>
+
+        <section class="panel review-panel">
+          <div class="panel-head">
+            <div>
+              <h2>今日复习</h2>
+              <p id="reviewSubhead"></p>
+            </div>
+            <button id="nextReview" class="icon-button" title="扩展或换一张今日卡片" aria-label="扩展或换一张今日卡片">↻</button>
+          </div>
+
+          <article id="reviewCard" class="review-card empty">
+            <p class="empty-title">今天的卡片会出现在这里</p>
+            <p>单词先出现，点“显示答案”后再判断熟练度。</p>
+          </article>
+
+          <div class="review-actions">
+            <button id="revealAnswer" class="secondary-button" disabled>显示答案</button>
+            <button id="forgotButton" class="danger-button" disabled>忘了</button>
+            <button id="fuzzyButton" class="secondary-button" disabled>模糊</button>
+            <button id="knownButton" class="primary-button" disabled>认识</button>
+            <button id="easyButton" class="primary-button strong-button" disabled>熟练</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="libraryView" class="tab-view" data-view="library">
+        <section class="entry-layout">
+          <section class="panel library-panel">
+            <div class="panel-head library-head">
+              <div>
+                <h2>我的词库</h2>
+                <p><span id="totalCount">0</span> 个词 · <span id="masteredCount">0</span> 个已掌握</p>
+              </div>
+              <button id="addWordToggle" type="button" class="secondary-button library-add-button" aria-expanded="false">＋ 新增单词</button>
+            </div>
+              <div class="library-tools">
+                <input id="filterInput" placeholder="搜索词库" />
+                <button id="sortOldestButton" class="icon-button" title="按最早录入排序" aria-label="按最早录入排序">↑</button>
+                <button id="sortNewestButton" class="icon-button active-sort" title="按最近录入排序" aria-label="按最近录入排序">↓</button>
+              </div>
+              <div class="library-hidden-data" hidden>
+                <button id="exportButton" class="icon-button library-data-button" title="导出数据" aria-label="导出数据">导出</button>
+                <label class="icon-button import-button" title="导入数据" aria-label="导入数据">
+                  导入
+                  <input id="importInput" type="file" accept="application/json" />
+                </label>
+              </div>
+            <aside id="wordFormPanel" class="add-panel library-word-form collapsed">
+              <div class="panel-head">
+                <h2 id="wordFormTitle">录入新词</h2>
+              </div>
+
+              <form id="wordForm" class="word-form">
+                <div class="form-section">
+                  <p class="form-section-title">基础信息</p>
+                  <label for="wordInput">韩语单词</label>
+                  <input id="wordInput" required lang="ko" autocomplete="off" placeholder="예: 기억하다" />
+
+                  <div class="form-grid">
+                    <label>
+                      发音
+                      <input id="pronunciationInput" lang="ko" placeholder="기어카다" />
+                    </label>
+                    <label>
+                      词性
+                      <select id="posInput">
+                        <option value="">未标注</option>
+                        <option value="명사">명사 名词</option>
+                        <option value="대명사">대명사 代词</option>
+                        <option value="수사">수사 数词</option>
+                        <option value="동사">동사 动词</option>
+                        <option value="형용사">형용사 形容词</option>
+                        <option value="관형사">관형사 冠形词</option>
+                        <option value="부사">부사 副词</option>
+                        <option value="조사">조사 助词</option>
+                        <option value="감탄사">감탄사 叹词</option>
+                        <option value="어미">어미 语尾</option>
+                        <option value="표현">표현 表达/短语</option>
+                        <option value="기타">기타 其他</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="form-section">
+                  <p class="form-section-title">释义与备注</p>
+                  <label for="meaningInput">中文释义</label>
+                  <textarea id="meaningInput" rows="4" placeholder="自己写中文意思、近义词或容易混淆的点"></textarea>
+
+                  <label for="formsInput">变形 / 派生</label>
+                  <textarea id="formsInput" rows="3" placeholder="예: 해요体、过去式、名词化、相关词"></textarea>
+
+                  <label for="noteInput">例句及易混点</label>
+                  <textarea id="noteInput" rows="3" placeholder="예: 기억이 나다 / 기억하다 的区别"></textarea>
+                </div>
+
+                <button id="wordSubmitButton" type="submit" class="primary-button">加入词库</button>
+              </form>
+            </aside>
+            <div id="wordList" class="word-list"></div>
+          </section>
+        </section>
+      </section>
+
+      <section id="grammarView" class="tab-view" data-view="grammar">
+        <section class="panel grammar-panel">
+          <div class="panel-head library-head">
+            <div>
+              <h2>语法库</h2>
+              <p><span id="grammarTotalCount">0</span> 个语法点</p>
+            </div>
+            <button id="addGrammarToggle" type="button" class="secondary-button library-add-button" aria-expanded="false">＋ 新增语法</button>
+          </div>
+          <div class="library-tools grammar-tools">
+            <input id="grammarFilterInput" placeholder="搜索语法卡片" />
+            <select id="grammarTagFilter" aria-label="按标签筛选">
+              <option value="">全部标签</option>
+              <option value="基础句型">基础句型</option>
+              <option value="时态否定">时态否定</option>
+              <option value="连接关系">连接关系</option>
+              <option value="原因条件">原因条件</option>
+              <option value="意愿目的">意愿目的</option>
+              <option value="推测判断">推测判断</option>
+              <option value="比较程度">比较程度</option>
+              <option value="口语表达">口语表达</option>
+              <option value="其他">其他</option>
+            </select>
+          </div>
+          <aside id="grammarFormPanel" class="add-panel library-word-form collapsed">
+            <div class="panel-head">
+              <h2 id="grammarFormTitle">新增语法点</h2>
+            </div>
+
+            <form id="grammarForm" class="word-form">
+              <div class="form-section">
+                <p class="form-section-title">基础信息</p>
+                <label for="grammarInput">语法点</label>
+                <input id="grammarInput" required lang="ko" autocomplete="off" placeholder="-(으)ㄹ 것 같다" />
+
+                <label for="grammarSummaryInput">解读</label>
+                <textarea id="grammarSummaryInput" rows="3" placeholder="表示推测，好像……"></textarea>
+
+                <label for="grammarPatternInput">规则</label>
+                <textarea id="grammarPatternInput" rows="3" placeholder="动词词干 + (으)ㄹ 것 같다"></textarea>
+              </div>
+
+              <div class="form-section">
+                <p class="form-section-title">例句与来源</p>
+                <label for="grammarExamplesInput">例句</label>
+                <textarea id="grammarExamplesInput" rows="5" placeholder="一行一个例句，或韩文和中文分行填写"></textarea>
+
+                <div class="form-grid">
+                  <label>
+                    来源
+                    <input id="grammarSourceInput" placeholder="TTMIK L3-23" />
+                  </label>
+                  <label>
+                    标签
+                    <select id="grammarTagInput">
+                      <option value="">其他</option>
+                      <option value="基础句型">基础句型</option>
+                      <option value="时态否定">时态否定</option>
+                      <option value="连接关系">连接关系</option>
+                      <option value="原因条件">原因条件</option>
+                      <option value="意愿目的">意愿目的</option>
+                      <option value="推测判断">推测判断</option>
+                      <option value="比较程度">比较程度</option>
+                      <option value="口语表达">口语表达</option>
+                      <option value="其他">其他</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label for="grammarNotesInput">备注</label>
+                <textarea id="grammarNotesInput" rows="3" placeholder="补充说明、易混点或自己的理解"></textarea>
+              </div>
+
+              <button id="grammarSubmitButton" type="submit" class="primary-button">保存语法点</button>
+            </form>
+          </aside>
+          <div id="grammarList" class="word-list"></div>
+        </section>
+      </section>
+
+      <section id="syncView" class="tab-view" data-view="sync">
+        <section class="panel sync-panel" aria-labelledby="syncTitle">
+          <div class="panel-head sync-status-card">
+            <div>
+              <h2 id="syncTitle">云端同步</h2>
+              <p id="syncStatus">未连接</p>
+            </div>
+          </div>
+          <div class="sync-form">
+            <div class="sync-actions cloud-main-actions">
+              <button type="button" id="pullCloudButton" class="secondary-button" disabled>从云端下载</button>
+              <button type="button" id="pushCloudButton" class="primary-button" disabled>同步到云端</button>
+            </div>
+
+            <label for="syncEmailInput">邮箱</label>
+            <input id="syncEmailInput" type="email" autocomplete="email" placeholder="you@example.com" />
+            <div class="sync-actions">
+              <button type="button" id="sendLoginLink" class="secondary-button">发送验证码</button>
+              <button type="button" id="refreshSessionButton" class="secondary-button">检查登录状态</button>
+            </div>
+            <label for="magicLinkInput">邮箱验证码</label>
+            <input id="magicLinkInput" autocomplete="one-time-code" inputmode="numeric" maxlength="8" placeholder="输入邮件里的 6 位验证码" />
+            <button type="button" id="applyMagicLinkButton" class="secondary-button">用验证码登录</button>
+            <div class="sync-actions account-actions">
+              <button type="button" id="signOutButton" class="secondary-button" disabled>退出</button>
+            </div>
+
+            <details class="advanced-config">
+              <summary>高级配置</summary>
+              <label for="supabaseUrlInput">Supabase URL</label>
+              <input id="supabaseUrlInput" autocomplete="off" placeholder="https://xxxx.supabase.co" />
+
+              <label for="supabaseAnonInput">Supabase anon key</label>
+              <input id="supabaseAnonInput" type="password" autocomplete="off" placeholder="eyJ..." />
+              <button type="button" id="saveCloudConfig" class="secondary-button">保存云配置</button>
+            </details>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js?v=20260605-daily-deck"></script>
+  </body>
+</html>

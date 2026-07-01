@@ -561,6 +561,24 @@ h2 {
   gap: 18px;
 }
 
+.library-head {
+  grid-template-columns: 1fr auto;
+  align-items: start;
+}
+
+.library-add-button {
+  width: auto;
+  min-width: 128px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.library-head .library-add-button {
+  width: auto;
+  max-width: max-content;
+  justify-self: end;
+}
+
 .library-tools {
   display: grid;
   grid-template-columns: 1fr 46px 46px;
@@ -595,9 +613,19 @@ h2 {
   display: none;
 }
 
+.library-word-form {
+  margin: 16px 0 18px;
+  box-shadow: none;
+}
+
+.library-word-form.collapsed {
+  display: none;
+}
+
 .word-list {
   display: grid;
   gap: 14px;
+  margin-top: 14px;
 }
 
 .word-item {
@@ -789,7 +817,70 @@ h2 {
   gap: 14px;
 }
 
-/* J. buttons and inputs */
+/* J. grammar page */
+.grammar-panel {
+  padding: 36px 20px 20px;
+}
+
+.grammar-tools {
+  grid-template-columns: 1fr minmax(128px, 0.55fr);
+}
+
+.grammar-empty {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  border-radius: 28px;
+  background: rgba(168, 218, 220, 0.14);
+  color: var(--muted);
+  text-align: center;
+}
+
+.grammar-item {
+  cursor: pointer;
+}
+
+.grammar-item.expanded {
+  gap: 10px 12px;
+}
+
+.grammar-pattern {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.grammar-detail {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(168, 218, 220, 0.13);
+}
+
+.grammar-detail .answer-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.grammar-view-button {
+  width: auto;
+  min-width: 42px;
+  padding: 0 8px;
+  background-image: none;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+/* K. buttons and inputs */
 input,
 textarea,
 select {
@@ -811,7 +902,13 @@ textarea {
 }
 
 select {
-  padding-right: 38px;
+  appearance: none;
+  padding-right: 52px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%),
+    linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+  background-position: calc(100% - 25px) 50%, calc(100% - 16px) 50%;
+  background-size: 9px 9px, 9px 9px;
+  background-repeat: no-repeat;
   font-weight: 520;
 }
 
@@ -851,7 +948,7 @@ select:focus {
   color: var(--ink);
 }
 
-/* K. toast */
+/* L. toast */
 .toast {
   position: fixed;
   left: 50%;
@@ -868,7 +965,7 @@ select:focus {
   transform: translateX(-50%);
 }
 
-/* L. responsive media queries */
+/* M. responsive media queries */
 @media (min-width: 760px) {
   .app-shell {
     padding-top: 40px;
@@ -903,7 +1000,8 @@ select:focus {
 
   .add-panel,
   .library-panel,
-  .sync-panel {
+  .sync-panel,
+  .grammar-panel {
     padding: 36px 18px 18px;
   }
 
@@ -920,6 +1018,20 @@ select:focus {
 
   .library-tools {
     grid-template-columns: 1fr 46px 46px;
+  }
+
+  .grammar-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .library-head {
+    grid-template-columns: 1fr;
+  }
+
+  .library-add-button {
+    width: auto;
+    max-width: max-content;
+    justify-self: start;
   }
 
   .tab-bar {

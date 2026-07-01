@@ -1,12 +1,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const STORAGE_KEY = "korean-vocab-v2";
+const GRAMMAR_STORAGE_KEY = "otterly-grammar-v1";
 const DAILY_DECK_KEY = "korean-vocab-v2-daily-deck";
 const CLOUD_URL_KEY = "korean-vocab-supabase-url";
 const CLOUD_ANON_KEY = "korean-vocab-supabase-anon";
 const LAST_SYNC_KEY = "korean-vocab-v2-last-sync-at";
 const PENDING_DELETES_KEY = "korean-vocab-v2-pending-deletes";
+const GRAMMAR_PENDING_DELETES_KEY = "otterly-grammar-v1-pending-deletes";
 const SUPABASE_V2_TABLE = "korean_vocab_words_v2";
+const SUPABASE_GRAMMAR_TABLE = "otterly_grammar_v1";
 const SUPABASE_LEGACY_TABLE = "vocab_cards";
 const DAY = 24 * 60 * 60 * 1000;
 const MINUTE = 60 * 1000;
@@ -22,6 +25,7 @@ const daysFromNow = (days) => new Date(Date.now() + days * DAY).toISOString();
 
 const state = {
   words: loadWords(),
+  grammarItems: loadGrammarItems(),
   dueCards: [],
   dailyCardLimit: DAILY_CARD_GOAL,
   dailyDeck: null,
@@ -32,11 +36,14 @@ const state = {
   revealed: false,
   reviewMode: "due",
   filter: "",
+  grammarFilter: "",
+  grammarTagFilter: "",
   supabase: null,
   user: null,
   cloudReady: false,
   syncing: false,
   editingWordId: null,
+  editingGrammarId: null,
   librarySortOrder: "newest",
 };
 
@@ -47,6 +54,8 @@ const els = {
   goalProgress: $("#goalProgress"),
   masteredCount: $("#masteredCount"),
   wordForm: $("#wordForm"),
+  wordFormPanel: $("#wordFormPanel"),
+  addWordToggle: $("#addWordToggle"),
   wordInput: $("#wordInput"),
   wordFormTitle: $("#wordFormTitle"),
   wordSubmitButton: $("#wordSubmitButton"),
@@ -69,6 +78,22 @@ const els = {
   exportButton: $("#exportButton"),
   importInput: $("#importInput"),
   wordList: $("#wordList"),
+  grammarTotalCount: $("#grammarTotalCount"),
+  grammarForm: $("#grammarForm"),
+  grammarFormPanel: $("#grammarFormPanel"),
+  addGrammarToggle: $("#addGrammarToggle"),
+  grammarFormTitle: $("#grammarFormTitle"),
+  grammarSubmitButton: $("#grammarSubmitButton"),
+  grammarInput: $("#grammarInput"),
+  grammarSummaryInput: $("#grammarSummaryInput"),
+  grammarPatternInput: $("#grammarPatternInput"),
+  grammarExamplesInput: $("#grammarExamplesInput"),
+  grammarSourceInput: $("#grammarSourceInput"),
+  grammarTagInput: $("#grammarTagInput"),
+  grammarNotesInput: $("#grammarNotesInput"),
+  grammarFilterInput: $("#grammarFilterInput"),
+  grammarTagFilter: $("#grammarTagFilter"),
+  grammarList: $("#grammarList"),
   supabaseUrlInput: $("#supabaseUrlInput"),
   supabaseAnonInput: $("#supabaseAnonInput"),
   saveCloudConfig: $("#saveCloudConfig"),
@@ -89,6 +114,9 @@ els.supabaseUrlInput.value = localStorage.getItem(CLOUD_URL_KEY) || "";
 els.supabaseAnonInput.value = localStorage.getItem(CLOUD_ANON_KEY) || "";
 
 els.wordForm.addEventListener("submit", saveWordFromForm);
+els.addWordToggle.addEventListener("click", toggleWordFormPanel);
+els.grammarForm.addEventListener("submit", saveGrammarFromForm);
+els.addGrammarToggle.addEventListener("click", toggleGrammarFormPanel);
 els.revealAnswer.addEventListener("click", revealCurrent);
 els.forgotButton.addEventListener("click", (event) => reviewCurrent("forgot", event));
 els.fuzzyButton.addEventListener("click", (event) => reviewCurrent("fuzzy", event));
@@ -98,6 +126,14 @@ els.nextReview.addEventListener("click", nextReviewCard);
 els.filterInput.addEventListener("input", (event) => {
   state.filter = event.target.value.trim().toLowerCase();
   renderLibrary();
+});
+els.grammarFilterInput.addEventListener("input", (event) => {
+  state.grammarFilter = event.target.value.trim().toLowerCase();
+  renderGrammar();
+});
+els.grammarTagFilter.addEventListener("change", (event) => {
+  state.grammarTagFilter = event.target.value;
+  renderGrammar();
 });
 els.sortOldestButton.addEventListener("click", () => setLibrarySortOrder("oldest"));
 els.sortNewestButton.addEventListener("click", () => setLibrarySortOrder("newest"));
@@ -124,6 +160,31 @@ function loadWords() {
   } catch {
     return [];
   }
+}
+
+function loadGrammarItems() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GRAMMAR_STORAGE_KEY));
+    return Array.isArray(parsed) ? parsed.map(normalizeGrammarItem) : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeGrammarItem(item) {
+  const createdAt = item.createdAt || nowIso();
+  return {
+    id: item.id || crypto.randomUUID(),
+    grammar: item.grammar || "",
+    summary: item.summary || "",
+    pattern: item.pattern || "",
+    examples: item.examples || "",
+    source: item.source || "",
+    tag: item.tag || "",
+    notes: item.notes || "",
+    createdAt,
+    updatedAt: item.updatedAt || createdAt,
+  };
 }
 
 function normalizeWords(words) {
@@ -163,6 +224,10 @@ function persist() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.words));
 }
 
+function persistGrammar() {
+  localStorage.setItem(GRAMMAR_STORAGE_KEY, JSON.stringify(state.grammarItems));
+}
+
 function readPendingDeletes() {
   try {
     const parsed = JSON.parse(localStorage.getItem(PENDING_DELETES_KEY));
@@ -184,11 +249,33 @@ function removePendingDelete(id) {
   savePendingDeletes(readPendingDeletes().filter((entryId) => entryId !== id));
 }
 
+function readPendingGrammarDeletes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GRAMMAR_PENDING_DELETES_KEY));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingGrammarDeletes(ids) {
+  localStorage.setItem(GRAMMAR_PENDING_DELETES_KEY, JSON.stringify([...new Set(ids)]));
+}
+
+function addPendingGrammarDelete(id) {
+  savePendingGrammarDeletes([...readPendingGrammarDeletes(), id]);
+}
+
+function removePendingGrammarDelete(id) {
+  savePendingGrammarDeletes(readPendingGrammarDeletes().filter((entryId) => entryId !== id));
+}
+
 function renderAll() {
   rebuildDueCards();
   renderStats();
   renderReview();
   renderLibrary();
+  renderGrammar();
 }
 
 function rebuildDueCards() {
@@ -377,7 +464,7 @@ function renderReview() {
 
   if (state.dueCards.length === 0) {
     els.reviewCard.className = "review-card empty";
-    els.reviewCard.innerHTML = `<p class="empty-title">今天没有到期卡片。</p><p>可以去录入页添加新词，或等待下一次复习。</p>`;
+    els.reviewCard.innerHTML = `<p class="empty-title">今天没有到期卡片。</p><p>可以去词库页添加新词，或等待下一次复习。</p>`;
     setReviewButtons(false);
     return;
   }
@@ -523,6 +610,81 @@ function renderLibrary() {
   });
 }
 
+function renderGrammar() {
+  const items = state.grammarItems
+    .filter((item) => {
+      const haystack = [
+        item.grammar,
+        item.summary,
+        item.pattern,
+        item.examples,
+        item.source,
+        item.tag,
+        item.notes,
+      ].join(" ").toLowerCase();
+      const matchesSearch = !state.grammarFilter || haystack.includes(state.grammarFilter);
+      const matchesTag = !state.grammarTagFilter || item.tag === state.grammarTagFilter;
+      return matchesSearch && matchesTag;
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+  els.grammarTotalCount.textContent = state.grammarItems.length;
+
+  if (items.length === 0) {
+    els.grammarList.innerHTML = `
+      <div class="grammar-empty">
+        <p class="empty-title">下一步新增语法卡片功能。</p>
+        <p>这里将用于记录 TTMIK 和 Bubble 中学到的语法点。</p>
+      </div>
+    `;
+    return;
+  }
+
+  els.grammarList.innerHTML = items.map((item) => {
+    const tag = item.tag || "其他";
+    return `
+      <article class="word-item grammar-item" data-id="${item.id}">
+        <div class="word-title-row">
+          <strong lang="ko">${escapeHtml(item.grammar)}</strong>
+          <span class="word-meta">${escapeHtml(tag)}</span>
+        </div>
+        <p class="word-text">${escapeHtml(firstLine(item.summary) || "暂无解读")}</p>
+        ${item.source ? `<p class="word-meta">${escapeHtml(item.source)}</p>` : ""}
+        <div class="grammar-detail" hidden>
+          ${renderGrammarDetailRow("解读", item.summary)}
+          ${renderGrammarDetailRow("规则", item.pattern)}
+          ${renderGrammarDetailRow("例句", item.examples)}
+          ${renderGrammarDetailRow("来源", item.source)}
+          ${renderGrammarDetailRow("标签", tag)}
+          ${renderGrammarDetailRow("备注", item.notes)}
+        </div>
+        <div class="word-actions">
+          <button class="tiny-button grammar-view-button" data-action="view">查看</button>
+          <button class="tiny-button" data-action="edit">编辑</button>
+          <button class="tiny-button" data-action="delete">删除</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  els.grammarList.querySelectorAll(".grammar-item").forEach((item) => {
+    item.addEventListener("click", handleGrammarCardClick);
+  });
+  els.grammarList.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", handleGrammarAction);
+  });
+}
+
+function renderGrammarDetailRow(label, value) {
+  if (!String(value || "").trim()) return "";
+  return `
+    <div class="answer-row">
+      <span class="answer-label">${escapeHtml(label)}</span>
+      <span class="answer-value">${lineBreaks(value)}</span>
+    </div>
+  `;
+}
+
 function saveWordFromForm(event) {
   event.preventDefault();
   const korean = els.wordInput.value.trim();
@@ -600,10 +762,105 @@ function saveEditedWord(payload) {
   persist();
   els.wordForm.reset();
   resetWordFormMode();
+  hideWordFormPanel();
   state.revealed = false;
   renderAll();
   switchTab("library");
   toast("修改已保存");
+}
+
+function toggleWordFormPanel() {
+  if (els.wordFormPanel.classList.contains("collapsed")) {
+    els.wordForm.reset();
+    resetWordFormMode();
+    showWordFormPanel();
+    els.wordInput.focus();
+    return;
+  }
+  hideWordFormPanel();
+}
+
+function showWordFormPanel() {
+  els.wordFormPanel.classList.remove("collapsed");
+  els.addWordToggle.textContent = "收起表单";
+  els.addWordToggle.setAttribute("aria-expanded", "true");
+}
+
+function hideWordFormPanel() {
+  els.wordFormPanel.classList.add("collapsed");
+  els.addWordToggle.textContent = "＋ 新增单词";
+  els.addWordToggle.setAttribute("aria-expanded", "false");
+}
+
+function saveGrammarFromForm(event) {
+  event.preventDefault();
+  const grammar = els.grammarInput.value.trim();
+  if (!grammar) return;
+
+  const payload = {
+    grammar,
+    summary: els.grammarSummaryInput.value.trim(),
+    pattern: els.grammarPatternInput.value.trim(),
+    examples: els.grammarExamplesInput.value.trim(),
+    source: els.grammarSourceInput.value.trim(),
+    tag: els.grammarTagInput.value.trim() || "其他",
+    notes: els.grammarNotesInput.value.trim(),
+  };
+
+  if (state.editingGrammarId) {
+    const target = state.grammarItems.find((item) => item.id === state.editingGrammarId);
+    if (!target) {
+      resetGrammarFormMode();
+      toast("没有找到要修改的语法点");
+      return;
+    }
+    Object.assign(target, payload, { updatedAt: nowIso() });
+    toast("语法点已更新");
+  } else {
+    const createdAt = nowIso();
+    state.grammarItems.push({
+      id: crypto.randomUUID(),
+      ...payload,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    toast("语法点已保存");
+  }
+
+  persistGrammar();
+  els.grammarForm.reset();
+  resetGrammarFormMode();
+  hideGrammarFormPanel();
+  renderGrammar();
+}
+
+function toggleGrammarFormPanel() {
+  if (els.grammarFormPanel.classList.contains("collapsed")) {
+    els.grammarForm.reset();
+    resetGrammarFormMode();
+    showGrammarFormPanel();
+    els.grammarInput.focus();
+    return;
+  }
+  hideGrammarFormPanel();
+}
+
+function showGrammarFormPanel() {
+  els.grammarFormPanel.classList.remove("collapsed");
+  els.addGrammarToggle.textContent = "收起表单";
+  els.addGrammarToggle.setAttribute("aria-expanded", "true");
+}
+
+function hideGrammarFormPanel() {
+  els.grammarFormPanel.classList.add("collapsed");
+  els.addGrammarToggle.textContent = "＋ 新增语法";
+  els.addGrammarToggle.setAttribute("aria-expanded", "false");
+}
+
+function resetGrammarFormMode() {
+  state.editingGrammarId = null;
+  els.grammarFormTitle.textContent = "新增语法点";
+  els.grammarSubmitButton.textContent = "保存语法点";
 }
 
 function askDuplicateWordAction(word) {
@@ -1104,6 +1361,63 @@ function handleWordAction(event) {
   if (action === "delete") deleteWord(word);
 }
 
+function handleGrammarCardClick(event) {
+  if (event.target.closest("button")) return;
+  toggleGrammarDetail(event.currentTarget);
+}
+
+function handleGrammarAction(event) {
+  event.stopPropagation();
+  const itemNode = event.target.closest(".grammar-item");
+  const item = state.grammarItems.find((entry) => entry.id === itemNode.dataset.id);
+  if (!item) return;
+
+  const action = event.target.dataset.action;
+  if (action === "view") toggleGrammarDetail(itemNode);
+  if (action === "edit") editGrammar(item);
+  if (action === "delete") deleteGrammar(item);
+}
+
+function toggleGrammarDetail(itemNode) {
+  const detail = itemNode.querySelector(".grammar-detail");
+  if (!detail) return;
+  detail.hidden = !detail.hidden;
+  itemNode.classList.toggle("expanded", !detail.hidden);
+}
+
+function editGrammar(item) {
+  state.editingGrammarId = item.id;
+  els.grammarInput.value = item.grammar || "";
+  els.grammarSummaryInput.value = item.summary || "";
+  els.grammarPatternInput.value = item.pattern || "";
+  els.grammarExamplesInput.value = item.examples || "";
+  els.grammarSourceInput.value = item.source || "";
+  els.grammarTagInput.value = item.tag || "其他";
+  els.grammarNotesInput.value = item.notes || "";
+  els.grammarFormTitle.textContent = "修改语法点";
+  els.grammarSubmitButton.textContent = "保存修改";
+  switchTab("grammar");
+  showGrammarFormPanel();
+  els.grammarInput.focus();
+}
+
+async function deleteGrammar(item) {
+  if (!window.confirm(`确定删除「${item.grammar}」吗？`)) return;
+  state.grammarItems = state.grammarItems.filter((entry) => entry.id !== item.id);
+  persistGrammar();
+  renderGrammar();
+  toast("语法点已删除");
+
+  if (state.supabase && state.user) {
+    const { error } = await softDeleteCloudGrammar(item.id);
+    if (error) {
+      toast("本地已删除，云端语法删除失败，请稍后同步检查");
+    }
+  } else {
+    addPendingGrammarDelete(item.id);
+  }
+}
+
 function setLibrarySortOrder(order) {
   state.librarySortOrder = order;
   renderLibrary();
@@ -1126,7 +1440,8 @@ function editWord(word) {
   els.formsInput.value = word.forms || "";
   els.wordFormTitle.textContent = "修改词条";
   els.wordSubmitButton.textContent = "保存修改";
-  switchTab("entry");
+  switchTab("library");
+  showWordFormPanel();
   els.wordInput.focus();
 }
 
@@ -1321,19 +1636,26 @@ async function signOut() {
 
 async function syncToCloudV2() {
   if (!ensureCloudUser()) return;
-  if (!window.confirm("这会将当前本地新版词库同步到云端 v2，是否继续？")) return;
+  if (!window.confirm("这会将当前本地词库和语法库同步到云端 v2，是否继续？")) return;
 
   const words = loadWords();
+  const grammarItems = loadGrammarItems();
   const pendingDeletedIds = readPendingDeletes();
-  if (words.length === 0 && pendingDeletedIds.length === 0) {
-    toast("本地新版词库为空");
+  const pendingDeletedGrammarIds = readPendingGrammarDeletes();
+  if (words.length === 0 && grammarItems.length === 0 && pendingDeletedIds.length === 0 && pendingDeletedGrammarIds.length === 0) {
+    toast("本地词库和语法库为空");
     return;
   }
 
-  setSyncing(true, "正在同步到云端 v2...");
+  setSyncing(true, "正在同步词库和语法库到云端 v2...");
   const pendingDeleteError = await processPendingDeletes();
   if (pendingDeleteError) {
     setSyncing(false, `同步失败：待删除词条处理失败：${pendingDeleteError.message}`);
+    return;
+  }
+  const pendingGrammarDeleteError = await processPendingGrammarDeletes();
+  if (pendingGrammarDeleteError) {
+    setSyncing(false, `同步失败：待删除语法处理失败：${pendingGrammarDeleteError.message}`);
     return;
   }
 
@@ -1349,11 +1671,23 @@ async function syncToCloudV2() {
     return;
   }
 
+  const grammarRows = grammarItems.map((item) => toDbGrammar(item, state.user.id));
+  const { error: grammarError } = grammarRows.length
+    ? await state.supabase
+      .from(SUPABASE_GRAMMAR_TABLE)
+      .upsert(grammarRows, { onConflict: "id" })
+    : { error: null };
+
+  if (grammarError) {
+    setSyncing(false, `语法同步失败：${grammarError.message}`);
+    return;
+  }
+
   const syncedAt = nowIso();
   localStorage.setItem(LAST_SYNC_KEY, syncedAt);
   setSyncing(false);
-  updateCloudStatus(`已同步到云端 v2：${formatDateTime(syncedAt)}`);
-  toast("已同步到云端 v2");
+  updateCloudStatus(`词库和语法库已同步到云端 v2：${formatDateTime(syncedAt)}`);
+  toast("词库和语法库已同步到云端 v2");
 }
 
 async function processPendingDeletes() {
@@ -1371,6 +1705,21 @@ async function processPendingDeletes() {
   return remaining.length > 0 ? new Error("部分删除未完成") : null;
 }
 
+async function processPendingGrammarDeletes() {
+  const ids = readPendingGrammarDeletes();
+  if (ids.length === 0) return null;
+
+  const remaining = [];
+  for (const id of ids) {
+    const { error } = await softDeleteCloudGrammar(id);
+    if (error) {
+      remaining.push(id);
+    }
+  }
+  savePendingGrammarDeletes(remaining);
+  return remaining.length > 0 ? new Error("部分语法删除未完成") : null;
+}
+
 async function softDeleteCloudWord(id) {
   const timestamp = nowIso();
   return state.supabase
@@ -1383,11 +1732,23 @@ async function softDeleteCloudWord(id) {
     .eq("user_id", state.user.id);
 }
 
+async function softDeleteCloudGrammar(id) {
+  const timestamp = nowIso();
+  return state.supabase
+    .from(SUPABASE_GRAMMAR_TABLE)
+    .update({
+      deleted_at: timestamp,
+      updated_at: timestamp,
+    })
+    .eq("id", id)
+    .eq("user_id", state.user.id);
+}
+
 async function restoreFromCloudV2() {
   if (!ensureCloudUser()) return;
-  if (!window.confirm("这会用云端 v2 词库覆盖当前本地新版词库，是否继续？")) return;
+  if (!window.confirm("这会用云端 v2 词库和语法库覆盖当前本地数据，是否继续？")) return;
 
-  setSyncing(true, "正在从云端 v2 恢复...");
+  setSyncing(true, "正在从云端 v2 恢复词库和语法库...");
   const { data, error } = await state.supabase
     .from(SUPABASE_V2_TABLE)
     .select("*")
@@ -1399,8 +1760,21 @@ async function restoreFromCloudV2() {
     return;
   }
 
+  const { data: grammarData, error: grammarError } = await state.supabase
+    .from(SUPABASE_GRAMMAR_TABLE)
+    .select("*")
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false });
+
+  if (grammarError) {
+    setSyncing(false, `语法恢复失败：${grammarError.message}`);
+    return;
+  }
+
   state.words = normalizeWords((data || []).map(fromDbWord));
+  state.grammarItems = (grammarData || []).map(fromDbGrammar);
   persist();
+  persistGrammar();
   state.revealed = false;
   state.currentIndex = 0;
   renderAll();
@@ -1408,8 +1782,8 @@ async function restoreFromCloudV2() {
   const syncedAt = nowIso();
   localStorage.setItem(LAST_SYNC_KEY, syncedAt);
   setSyncing(false);
-  updateCloudStatus(`已从云端 v2 恢复：${formatDateTime(syncedAt)}`);
-  toast("已从云端 v2 恢复到本地");
+  updateCloudStatus(`已从云端 v2 恢复词库和语法库：${formatDateTime(syncedAt)}`);
+  toast("词库和语法库已从云端恢复到本地");
 }
 
 async function importLegacyToV2() {
@@ -1519,6 +1893,25 @@ function toDbWord(word, userId) {
   };
 }
 
+function toDbGrammar(item, userId) {
+  const createdAt = item.createdAt || nowIso();
+  const updatedAt = item.updatedAt || createdAt;
+  return {
+    id: item.id,
+    user_id: userId,
+    grammar: item.grammar || "",
+    summary: item.summary || "",
+    pattern: item.pattern || "",
+    examples: item.examples || "",
+    source: item.source || "",
+    tag: item.tag || "",
+    notes: item.notes || "",
+    created_at: createdAt,
+    updated_at: updatedAt,
+    deleted_at: null,
+  };
+}
+
 function legacyRowToDbWord(row, userId) {
   const createdAt = row.created_at || nowIso();
   const updatedAt = nowIso();
@@ -1580,6 +1973,21 @@ function fromDbWord(row) {
     mastered: Boolean(row.mastered),
     placementPending: typeof row.placement_pending === "boolean" ? row.placement_pending : true,
     reviewCards: Array.isArray(row.review_cards) ? row.review_cards : [],
+    createdAt: row.created_at || nowIso(),
+    updatedAt: row.updated_at || row.created_at || nowIso(),
+  };
+}
+
+function fromDbGrammar(row) {
+  return {
+    id: row.id,
+    grammar: row.grammar || "",
+    summary: row.summary || "",
+    pattern: row.pattern || "",
+    examples: row.examples || "",
+    source: row.source || "",
+    tag: row.tag || "",
+    notes: row.notes || "",
     createdAt: row.created_at || nowIso(),
     updatedAt: row.updated_at || row.created_at || nowIso(),
   };

@@ -564,6 +564,11 @@ h2 {
 .library-head {
   grid-template-columns: 1fr auto;
   align-items: start;
+  column-gap: 12px;
+}
+
+.library-head > div {
+  min-width: 0;
 }
 
 .library-add-button {
@@ -1025,13 +1030,15 @@ select:focus {
   }
 
   .library-head {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .library-add-button {
     width: auto;
     max-width: max-content;
-    justify-self: start;
+    min-width: 118px;
+    padding: 0 14px;
+    justify-self: end;
   }
 
   .tab-bar {

@@ -446,7 +446,9 @@ function renderStats() {
   els.dueCount.textContent = allDueCount;
   els.doneCount.textContent = doneToday;
   els.goalProgress.textContent = mastered;
-  els.masteredCount.textContent = mastered;
+  if (els.masteredCount) {
+    els.masteredCount.textContent = mastered;
+  }
 }
 
 function renderReview() {

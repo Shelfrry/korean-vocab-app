@@ -598,6 +598,13 @@ function renderLibrary() {
         </div>
         <p class="word-text">${escapeHtml(firstLine(word.meaning) || "无释义")}</p>
         <p class="word-meta">${escapeHtml(card?.stage || "learning")} · 下次 ${formatDue(card?.dueDate)}</p>
+        <div class="word-detail" hidden>
+          ${renderWordDetailRow("释义", word.meaning)}
+          ${renderWordDetailRow("词性", displayPartOfSpeech(word.partOfSpeech))}
+          ${renderWordDetailRow("发音", word.pronunciation)}
+          ${renderWordDetailRow("变形 / 派生", word.forms)}
+          ${renderWordDetailRow("备注", word.notes)}
+        </div>
         <div class="word-actions">
           <button class="tiny-button" data-action="speak">朗读</button>
           <button class="tiny-button" data-action="edit">编辑</button>
@@ -607,9 +614,17 @@ function renderLibrary() {
     `;
   }).join("");
 
+  els.wordList.querySelectorAll(".word-item").forEach((item) => {
+    item.addEventListener("click", handleWordCardClick);
+  });
   els.wordList.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", handleWordAction);
   });
+}
+
+function renderWordDetailRow(label, value) {
+  if (!String(value || "").trim()) return "";
+  return renderAnswerRow(label, value);
 }
 
 function renderGrammar() {
@@ -1353,6 +1368,7 @@ function releaseButtonFocus(event) {
 }
 
 function handleWordAction(event) {
+  event.stopPropagation();
   const item = event.target.closest(".word-item");
   const word = state.words.find((entry) => entry.id === item.dataset.id);
   if (!word) return;
@@ -1361,6 +1377,18 @@ function handleWordAction(event) {
   if (action === "speak") speakKorean(word.korean);
   if (action === "edit") editWord(word);
   if (action === "delete") deleteWord(word);
+}
+
+function handleWordCardClick(event) {
+  if (event.target.closest("button")) return;
+  toggleWordDetail(event.currentTarget);
+}
+
+function toggleWordDetail(itemNode) {
+  const detail = itemNode.querySelector(".word-detail");
+  if (!detail) return;
+  detail.hidden = !detail.hidden;
+  itemNode.classList.toggle("expanded", !detail.hidden);
 }
 
 function handleGrammarCardClick(event) {

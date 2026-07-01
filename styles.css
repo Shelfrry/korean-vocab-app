@@ -652,6 +652,11 @@ h2 {
   overflow: hidden;
 }
 
+.word-item.expanded {
+  gap: 10px 12px;
+  padding-bottom: 58px;
+}
+
 .word-item::after {
   content: "";
   position: absolute;
@@ -707,6 +712,16 @@ h2 {
   color: var(--muted);
   font-size: 1rem;
   line-height: 1.36;
+}
+
+.word-detail {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(168, 218, 220, 0.13);
 }
 
 .word-actions {
@@ -851,10 +866,6 @@ h2 {
   cursor: pointer;
 }
 
-.grammar-item.expanded {
-  gap: 10px 12px;
-}
-
 .grammar-pattern {
   grid-column: 1 / -1;
   margin: 0;
@@ -873,11 +884,25 @@ h2 {
   background: rgba(168, 218, 220, 0.13);
 }
 
+.word-detail .answer-row,
 .grammar-detail .answer-row {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 8px;
   align-items: start;
+  color: var(--muted);
+  font-weight: 520;
+}
+
+.word-detail .answer-label,
+.grammar-detail .answer-label {
+  color: var(--ink);
+  font-weight: 760;
+}
+
+.word-detail .answer-value,
+.grammar-detail .answer-value {
+  font-weight: 520;
 }
 
 .grammar-view-button {

@@ -22,6 +22,40 @@ const getBeijingDateKey = (date = new Date()) => new Date(date.getTime() + 8 * 6
 const todayKey = () => getBeijingDateKey();
 const minutesFromNow = (minutes) => new Date(Date.now() + minutes * MINUTE).toISOString();
 const daysFromNow = (days) => new Date(Date.now() + days * DAY).toISOString();
+const GRAMMAR_CATEGORIES = [
+  "助词",
+  "先语末词尾",
+  "连接词尾",
+  "转成词尾",
+  "终结词尾",
+  "固定构成",
+  "话语表达",
+  "活用规则",
+  "其他",
+];
+// 分类维护说明：
+// 助词：은/는, 이/가, 을/를, 에, 에서, 만, 밖에 等
+// 先语末词尾：-았/었-, -겠-, -(으)시- 等
+// 连接词尾：-고, -지만, -아/어서, -(으)면, -(으)니까 等
+// 转成词尾：-기, -(으)ㅁ, -(으)ㄴ, -는, -(으)ㄹ, -던 等
+// 终结词尾：-아/어요, -네요, -군요, -(으)ㄹ까요, -아/어야지 等
+// 固定构成：-고 싶다, -(으)ㄹ 것 같다, -아/어도 되다, -게 되다 等
+// 话语表达：그러면, 아무튼, 있잖아, 말이야 等
+// 活用规则：ㅂ 불규칙, ㄷ 불규칙, 르 불규칙, 으 탈락 等
+const LEGACY_GRAMMAR_TAG_TO_CATEGORY = {
+  基础句型: "固定构成",
+  时态否定: "先语末词尾",
+  连接关系: "连接词尾",
+  原因条件: "连接词尾",
+  意愿目的: "固定构成",
+  推测判断: "固定构成",
+  比较程度: "固定构成",
+  口语表达: "话语表达",
+  固定搭配: "固定构成",
+  "语法表达/构式": "固定构成",
+  "词汇/话语表达": "话语表达",
+  其他: "其他",
+};
 
 const state = {
   words: loadWords(),
@@ -37,7 +71,7 @@ const state = {
   reviewMode: "due",
   filter: "",
   grammarFilter: "",
-  grammarTagFilter: "",
+  grammarCategoryFilter: "",
   supabase: null,
   user: null,
   cloudReady: false,
@@ -89,10 +123,11 @@ const els = {
   grammarPatternInput: $("#grammarPatternInput"),
   grammarExamplesInput: $("#grammarExamplesInput"),
   grammarSourceInput: $("#grammarSourceInput"),
-  grammarTagInput: $("#grammarTagInput"),
+  grammarCategoryInput: $("#grammarCategoryInput"),
+  grammarFunctionInput: $("#grammarFunctionInput"),
   grammarNotesInput: $("#grammarNotesInput"),
   grammarFilterInput: $("#grammarFilterInput"),
-  grammarTagFilter: $("#grammarTagFilter"),
+  grammarCategoryFilter: $("#grammarCategoryFilter"),
   grammarList: $("#grammarList"),
   supabaseUrlInput: $("#supabaseUrlInput"),
   supabaseAnonInput: $("#supabaseAnonInput"),
@@ -131,8 +166,8 @@ els.grammarFilterInput.addEventListener("input", (event) => {
   state.grammarFilter = event.target.value.trim().toLowerCase();
   renderGrammar();
 });
-els.grammarTagFilter.addEventListener("change", (event) => {
-  state.grammarTagFilter = event.target.value;
+els.grammarCategoryFilter.addEventListener("change", (event) => {
+  state.grammarCategoryFilter = event.target.value;
   renderGrammar();
 });
 els.sortOldestButton.addEventListener("click", () => setLibrarySortOrder("oldest"));
@@ -165,7 +200,23 @@ function loadWords() {
 function loadGrammarItems() {
   try {
     const parsed = JSON.parse(localStorage.getItem(GRAMMAR_STORAGE_KEY));
-    return Array.isArray(parsed) ? parsed.map(normalizeGrammarItem) : [];
+    if (!Array.isArray(parsed)) return [];
+    let changed = false;
+    const normalized = parsed.map((item) => {
+      const result = normalizeGrammarItem(item);
+      if (
+        result.category !== item.category ||
+        result.function !== item.function ||
+        Object.prototype.hasOwnProperty.call(item, "tag")
+      ) {
+        changed = true;
+      }
+      return result;
+    });
+    if (changed) {
+      localStorage.setItem(GRAMMAR_STORAGE_KEY, JSON.stringify(normalized));
+    }
+    return normalized;
   } catch {
     return [];
   }
@@ -173,6 +224,12 @@ function loadGrammarItems() {
 
 function normalizeGrammarItem(item) {
   const createdAt = item.createdAt || nowIso();
+  const legacyTag = String(item.tag || "").trim();
+  const rawCategory = String(item.category || "").trim();
+  const rawFunction = String(item.function || "").trim();
+  const shouldUseLegacyTagCategory = legacyTag && (!rawCategory || (rawCategory === "其他" && legacyTag !== "其他" && !rawFunction));
+  const category = normalizeGrammarCategory(shouldUseLegacyTagCategory ? legacyTag : rawCategory || legacyTag);
+  const grammarFunction = rawFunction || legacyTag;
   return {
     id: item.id || crypto.randomUUID(),
     grammar: item.grammar || "",
@@ -180,11 +237,18 @@ function normalizeGrammarItem(item) {
     pattern: item.pattern || "",
     examples: item.examples || "",
     source: item.source || "",
-    tag: item.tag || "",
+    category,
+    function: grammarFunction,
     notes: item.notes || "",
     createdAt,
     updatedAt: item.updatedAt || createdAt,
   };
+}
+
+function normalizeGrammarCategory(value) {
+  const raw = String(value || "").trim();
+  const mapped = LEGACY_GRAMMAR_TAG_TO_CATEGORY[raw] || raw;
+  return GRAMMAR_CATEGORIES.includes(mapped) ? mapped : "其他";
 }
 
 function normalizeWords(words) {
@@ -636,12 +700,13 @@ function renderGrammar() {
         item.pattern,
         item.examples,
         item.source,
-        item.tag,
+        item.category,
+        item.function,
         item.notes,
       ].join(" ").toLowerCase();
       const matchesSearch = !state.grammarFilter || haystack.includes(state.grammarFilter);
-      const matchesTag = !state.grammarTagFilter || item.tag === state.grammarTagFilter;
-      return matchesSearch && matchesTag;
+      const matchesCategory = !state.grammarCategoryFilter || item.category === state.grammarCategoryFilter;
+      return matchesSearch && matchesCategory;
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
@@ -658,21 +723,25 @@ function renderGrammar() {
   }
 
   els.grammarList.innerHTML = items.map((item) => {
-    const tag = item.tag || "其他";
+    const category = normalizeGrammarCategory(item.category);
+    const grammarFunction = String(item.function || "").trim();
     return `
       <article class="word-item grammar-item" data-id="${item.id}">
         <div class="word-title-row">
           <strong lang="ko">${escapeHtml(item.grammar)}</strong>
-          <span class="word-meta">${escapeHtml(tag)}</span>
+          <span class="word-meta">${escapeHtml(category)}</span>
         </div>
         <p class="word-text">${escapeHtml(firstLine(item.summary) || "暂无解读")}</p>
+        ${grammarFunction ? `<p class="grammar-function">${escapeHtml(grammarFunction)}</p>` : ""}
         ${item.source ? `<p class="word-meta">${escapeHtml(item.source)}</p>` : ""}
         <div class="grammar-detail" hidden>
-          ${renderGrammarDetailRow("解读", item.summary)}
+          ${renderGrammarDetailRow("语法点", item.grammar)}
+          ${renderGrammarDetailRow("一句话理解", item.summary)}
           ${renderGrammarDetailRow("规则", item.pattern)}
           ${renderGrammarDetailRow("例句", item.examples)}
           ${renderGrammarDetailRow("来源", item.source)}
-          ${renderGrammarDetailRow("标签", tag)}
+          ${renderGrammarDetailRow("分类", category)}
+          ${renderGrammarDetailRow("功能", grammarFunction)}
           ${renderGrammarDetailRow("备注", item.notes)}
         </div>
         <div class="word-actions">
@@ -820,7 +889,8 @@ function saveGrammarFromForm(event) {
     pattern: els.grammarPatternInput.value.trim(),
     examples: els.grammarExamplesInput.value.trim(),
     source: els.grammarSourceInput.value.trim(),
-    tag: els.grammarTagInput.value.trim() || "其他",
+    category: normalizeGrammarCategory(els.grammarCategoryInput.value),
+    function: els.grammarFunctionInput.value.trim(),
     notes: els.grammarNotesInput.value.trim(),
   };
 
@@ -1422,7 +1492,8 @@ function editGrammar(item) {
   els.grammarPatternInput.value = item.pattern || "";
   els.grammarExamplesInput.value = item.examples || "";
   els.grammarSourceInput.value = item.source || "";
-  els.grammarTagInput.value = item.tag || "其他";
+  els.grammarCategoryInput.value = normalizeGrammarCategory(item.category);
+  els.grammarFunctionInput.value = item.function || "";
   els.grammarNotesInput.value = item.notes || "";
   els.grammarFormTitle.textContent = "修改语法点";
   els.grammarSubmitButton.textContent = "保存修改";
@@ -1934,7 +2005,8 @@ function toDbGrammar(item, userId) {
     pattern: item.pattern || "",
     examples: item.examples || "",
     source: item.source || "",
-    tag: item.tag || "",
+    category: normalizeGrammarCategory(item.category),
+    function: item.function || "",
     notes: item.notes || "",
     created_at: createdAt,
     updated_at: updatedAt,
@@ -2009,18 +2081,20 @@ function fromDbWord(row) {
 }
 
 function fromDbGrammar(row) {
-  return {
+  return normalizeGrammarItem({
     id: row.id,
     grammar: row.grammar || "",
     summary: row.summary || "",
     pattern: row.pattern || "",
     examples: row.examples || "",
     source: row.source || "",
+    category: row.category || "",
+    function: row.function || "",
     tag: row.tag || "",
     notes: row.notes || "",
     createdAt: row.created_at || nowIso(),
     updatedAt: row.updated_at || row.created_at || nowIso(),
-  };
+  });
 }
 
 function legacyDueDateToIso(value) {

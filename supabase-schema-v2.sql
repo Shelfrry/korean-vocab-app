@@ -80,12 +80,40 @@ create table if not exists public.otterly_grammar_v1 (
   examples text default '',
   source text default '',
   tag text default '',
+  category text default '其他',
+  "function" text default '',
   notes text default '',
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz
 );
+
+alter table public.otterly_grammar_v1
+  add column if not exists category text default '其他';
+
+alter table public.otterly_grammar_v1
+  add column if not exists "function" text default '';
+
+update public.otterly_grammar_v1
+set
+  category = case tag
+    when '基础句型' then '固定构成'
+    when '时态否定' then '先语末词尾'
+    when '连接关系' then '连接词尾'
+    when '原因条件' then '连接词尾'
+    when '意愿目的' then '固定构成'
+    when '推测判断' then '固定构成'
+    when '比较程度' then '固定构成'
+    when '口语表达' then '话语表达'
+    when '固定搭配' then '固定构成'
+    else coalesce(category, '其他')
+  end,
+  "function" = case
+    when coalesce("function", '') = '' then coalesce(tag, '')
+    else "function"
+  end
+where coalesce(tag, '') <> '';
 
 alter table public.otterly_grammar_v1 enable row level security;
 
@@ -130,6 +158,9 @@ create index if not exists otterly_grammar_v1_user_deleted_idx
 
 create index if not exists otterly_grammar_v1_user_tag_idx
   on public.otterly_grammar_v1(user_id, tag);
+
+create index if not exists otterly_grammar_v1_user_category_idx
+  on public.otterly_grammar_v1(user_id, category);
 
 create index if not exists otterly_grammar_v1_user_grammar_idx
   on public.otterly_grammar_v1(user_id, grammar);

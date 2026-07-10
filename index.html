@@ -162,17 +162,16 @@
           </div>
           <div class="library-tools grammar-tools">
             <input id="grammarFilterInput" placeholder="搜索语法卡片" />
-            <select id="grammarTagFilter" aria-label="按标签筛选">
-              <option value="">全部标签</option>
-              <option value="基础句型">基础句型</option>
-              <option value="时态否定">时态否定</option>
-              <option value="连接关系">连接关系</option>
-              <option value="原因条件">原因条件</option>
-              <option value="意愿目的">意愿目的</option>
-              <option value="推测判断">推测判断</option>
-              <option value="比较程度">比较程度</option>
-              <option value="口语表达">口语表达</option>
-              <option value="固定搭配">固定搭配</option>
+            <select id="grammarCategoryFilter" aria-label="按分类筛选">
+              <option value="">全部分类</option>
+              <option value="助词">助词</option>
+              <option value="先语末词尾">先语末词尾</option>
+              <option value="连接词尾">连接词尾</option>
+              <option value="转成词尾">转成词尾</option>
+              <option value="终结词尾">终结词尾</option>
+              <option value="固定构成">固定构成</option>
+              <option value="话语表达">话语表达</option>
+              <option value="活用规则">活用规则</option>
               <option value="其他">其他</option>
             </select>
           </div>
@@ -187,7 +186,7 @@
                 <label for="grammarInput">语法点</label>
                 <input id="grammarInput" required lang="ko" autocomplete="off" placeholder="-(으)ㄹ 것 같다" />
 
-                <label for="grammarSummaryInput">解读</label>
+                <label for="grammarSummaryInput">一句话理解</label>
                 <textarea id="grammarSummaryInput" rows="3" placeholder="表示推测，好像……"></textarea>
 
                 <label for="grammarPatternInput">规则</label>
@@ -205,22 +204,23 @@
                     <input id="grammarSourceInput" placeholder="TTMIK L3-23" />
                   </label>
                   <label>
-                    标签
-                    <select id="grammarTagInput">
-                      <option value="">其他</option>
-                      <option value="基础句型">基础句型</option>
-                      <option value="时态否定">时态否定</option>
-                      <option value="连接关系">连接关系</option>
-                      <option value="原因条件">原因条件</option>
-                      <option value="意愿目的">意愿目的</option>
-                      <option value="推测判断">推测判断</option>
-                      <option value="比较程度">比较程度</option>
-                      <option value="口语表达">口语表达</option>
-                      <option value="固定搭配">固定搭配</option>
-                      <option value="其他">其他</option>
+                    分类
+                    <select id="grammarCategoryInput">
+                      <option value="助词">助词</option>
+                      <option value="先语末词尾">先语末词尾</option>
+                      <option value="连接词尾">连接词尾</option>
+                      <option value="转成词尾">转成词尾</option>
+                      <option value="终结词尾">终结词尾</option>
+                      <option value="固定构成">固定构成</option>
+                      <option value="话语表达">话语表达</option>
+                      <option value="活用规则">活用规则</option>
+                      <option value="其他" selected>其他</option>
                     </select>
                   </label>
                 </div>
+
+                <label for="grammarFunctionInput">功能</label>
+                <input id="grammarFunctionInput" placeholder="例如：推测 / 原因 / 条件 / 限定 / 意图 / 让步 / 发现 / 提醒" />
 
                 <label for="grammarNotesInput">备注</label>
                 <textarea id="grammarNotesInput" rows="3" placeholder="补充说明、易混点或自己的理解"></textarea>

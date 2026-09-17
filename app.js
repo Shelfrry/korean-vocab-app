@@ -11,6 +11,7 @@ const GRAMMAR_PENDING_DELETES_KEY = "otterly-grammar-v1-pending-deletes";
 const SUPABASE_V2_TABLE = "korean_vocab_words_v2";
 const SUPABASE_GRAMMAR_TABLE = "otterly_grammar_v1";
 const SUPABASE_LEGACY_TABLE = "vocab_cards";
+const CLOUD_PAGE_SIZE = 500;
 const DAY = 24 * 60 * 60 * 1000;
 const MINUTE = 60 * 1000;
 const DAILY_CARD_GOAL = 35;
@@ -1850,22 +1851,14 @@ async function restoreFromCloudV2() {
   if (!window.confirm("这会用云端 v2 词库和语法库覆盖当前本地数据，是否继续？")) return;
 
   setSyncing(true, "正在从云端 v2 恢复词库和语法库...");
-  const { data, error } = await state.supabase
-    .from(SUPABASE_V2_TABLE)
-    .select("*")
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false });
+  const { data, error } = await fetchAllActiveCloudRows(SUPABASE_V2_TABLE);
 
   if (error) {
     setSyncing(false, `恢复失败：${error.message}`);
     return;
   }
 
-  const { data: grammarData, error: grammarError } = await state.supabase
-    .from(SUPABASE_GRAMMAR_TABLE)
-    .select("*")
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false });
+  const { data: grammarData, error: grammarError } = await fetchAllActiveCloudRows(SUPABASE_GRAMMAR_TABLE);
 
   if (grammarError) {
     setSyncing(false, `语法恢复失败：${grammarError.message}`);
@@ -1885,6 +1878,28 @@ async function restoreFromCloudV2() {
   setSyncing(false);
   updateCloudStatus(`已从云端 v2 恢复词库和语法库：${formatDateTime(syncedAt)}`);
   toast("词库和语法库已从云端恢复到本地");
+}
+
+async function fetchAllActiveCloudRows(tableName) {
+  const rows = [];
+
+  for (let from = 0; ; from += CLOUD_PAGE_SIZE) {
+    const { data, error } = await state.supabase
+      .from(tableName)
+      .select("*")
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + CLOUD_PAGE_SIZE - 1);
+
+    if (error) return { data: null, error };
+
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < CLOUD_PAGE_SIZE) break;
+  }
+
+  return { data: rows, error: null };
 }
 
 async function importLegacyToV2() {
@@ -2226,3 +2241,4 @@ function toast(message) {
   document.body.append(node);
   setTimeout(() => node.remove(), 2600);
 }
+

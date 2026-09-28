@@ -58,6 +58,14 @@ const LEGACY_GRAMMAR_TAG_TO_CATEGORY = {
   其他: "其他",
 };
 
+const HANGUL_INITIALS = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"];
+const HANGUL_VOWELS = ["a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we", "wi", "yu", "eu", "ui", "i"];
+const HANGUL_FINALS = ["", "k", "k", "ks", "n", "n", "n", "t", "l", "lk", "lm", "lp", "ls", "lt", "lp", "lh", "m", "p", "ps", "t", "t", "ng", "t", "t", "k", "t", "p", "h"];
+
+let pronunciationManuallyEdited = false;
+let activeSpeechUtterance = null;
+let speechRequestId = 0;
+
 const state = {
   words: loadWords(),
   grammarItems: loadGrammarItems(),
@@ -151,6 +159,10 @@ els.supabaseAnonInput.value = localStorage.getItem(CLOUD_ANON_KEY) || "";
 
 els.wordForm.addEventListener("submit", saveWordFromForm);
 els.addWordToggle.addEventListener("click", toggleWordFormPanel);
+els.wordInput.addEventListener("input", updateAutomaticPronunciation);
+els.pronunciationInput.addEventListener("input", () => {
+  pronunciationManuallyEdited = true;
+});
 els.grammarForm.addEventListener("submit", saveGrammarFromForm);
 els.addGrammarToggle.addEventListener("click", toggleGrammarFormPanel);
 els.revealAnswer.addEventListener("click", revealCurrent);
@@ -629,15 +641,10 @@ function setReviewButtons(hasCard) {
 function renderLibrary() {
   const words = state.words
     .filter((word) => {
-      const haystack = [
-        word.korean,
-        word.meaning,
-        word.notes,
-        word.partOfSpeech,
-        word.forms,
-        word.pronunciation,
-      ].join(" ").toLowerCase();
-      return !state.filter || haystack.includes(state.filter);
+      if (!state.filter) return true;
+      const isKoreanSearch = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(state.filter);
+      const searchTarget = isKoreanSearch ? word.korean : word.meaning;
+      return String(searchTarget || "").toLowerCase().includes(state.filter);
     })
     .sort((a, b) => {
       const compare = String(a.createdAt).localeCompare(String(b.createdAt));
@@ -784,7 +791,7 @@ function saveWordFromForm(event) {
     partOfSpeech: els.posInput.value.trim(),
     exampleKo: "",
     exampleZh: "",
-    pronunciation: els.pronunciationInput.value.trim(),
+    pronunciation: els.pronunciationInput.value.trim() || formatAutomaticPronunciation(korean),
     forms: els.formsInput.value.trim(),
     confusion: "",
     source: "",
@@ -827,6 +834,7 @@ function saveWordFromForm(event) {
 
   persist();
   els.wordForm.reset();
+  pronunciationManuallyEdited = false;
   state.revealed = false;
   renderAll();
 }
@@ -848,6 +856,7 @@ function saveEditedWord(payload) {
   replaceExistingWord(target, payload);
   persist();
   els.wordForm.reset();
+  pronunciationManuallyEdited = false;
   resetWordFormMode();
   hideWordFormPanel();
   state.revealed = false;
@@ -859,6 +868,7 @@ function saveEditedWord(payload) {
 function toggleWordFormPanel() {
   if (els.wordFormPanel.classList.contains("collapsed")) {
     els.wordForm.reset();
+    pronunciationManuallyEdited = false;
     resetWordFormMode();
     showWordFormPanel();
     els.wordInput.focus();
@@ -1526,10 +1536,67 @@ function setLibrarySortOrder(order) {
 }
 
 function speakKorean(word) {
-  const utterance = new SpeechSynthesisUtterance(word);
-  utterance.lang = "ko-KR";
-  speechSynthesis.cancel();
-  speechSynthesis.speak(utterance);
+  const text = String(word || "").trim();
+  if (!text) return;
+  if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+    toast("当前设备不支持语音朗读");
+    return;
+  }
+
+  const synth = window.speechSynthesis;
+  const requestId = ++speechRequestId;
+  synth.cancel();
+
+  const startSpeech = (retryCount = 0) => {
+    if (requestId !== speechRequestId) return;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const koreanVoice = synth.getVoices().find((voice) => String(voice.lang || "").toLowerCase().startsWith("ko"));
+    utterance.lang = "ko-KR";
+    utterance.rate = 0.9;
+    if (koreanVoice) utterance.voice = koreanVoice;
+    activeSpeechUtterance = utterance;
+
+    utterance.onend = () => {
+      if (activeSpeechUtterance === utterance) activeSpeechUtterance = null;
+    };
+    utterance.onerror = (event) => {
+      if (requestId !== speechRequestId || ["canceled", "interrupted"].includes(event.error)) return;
+      if (retryCount < 1) {
+        synth.cancel();
+        window.setTimeout(() => startSpeech(retryCount + 1), 120);
+        return;
+      }
+      activeSpeechUtterance = null;
+      toast("朗读暂时不可用，请稍后再试");
+    };
+
+    if (synth.paused) synth.resume();
+    synth.speak(utterance);
+  };
+
+  window.setTimeout(() => startSpeech(), 60);
+}
+
+function updateAutomaticPronunciation() {
+  if (pronunciationManuallyEdited) return;
+  const korean = els.wordInput.value.trim();
+  els.pronunciationInput.value = formatAutomaticPronunciation(korean);
+}
+
+function formatAutomaticPronunciation(korean) {
+  if (!korean) return "";
+  const romanized = korean.replace(/[가-힣]+/g, (chunk) => [...chunk].map(romanizeHangulSyllable).join("-"));
+  return romanized === korean ? "" : romanized;
+}
+
+function romanizeHangulSyllable(character) {
+  const syllableIndex = character.charCodeAt(0) - 0xac00;
+  if (syllableIndex < 0 || syllableIndex > 11171) return character;
+  const initialIndex = Math.floor(syllableIndex / 588);
+  const vowelIndex = Math.floor((syllableIndex % 588) / 28);
+  const finalIndex = syllableIndex % 28;
+  return `${HANGUL_INITIALS[initialIndex]}${HANGUL_VOWELS[vowelIndex]}${HANGUL_FINALS[finalIndex]}`;
 }
 
 function editWord(word) {
@@ -1539,6 +1606,7 @@ function editWord(word) {
   els.noteInput.value = word.notes || "";
   els.posInput.value = word.partOfSpeech || "";
   els.pronunciationInput.value = word.pronunciation || "";
+  pronunciationManuallyEdited = Boolean(word.pronunciation);
   els.formsInput.value = word.forms || "";
   els.wordFormTitle.textContent = "修改词条";
   els.wordSubmitButton.textContent = "保存修改";
@@ -2241,4 +2309,3 @@ function toast(message) {
   document.body.append(node);
   setTimeout(() => node.remove(), 2600);
 }
-

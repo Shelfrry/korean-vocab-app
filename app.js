@@ -63,6 +63,7 @@ const HANGUL_VOWELS = ["a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa"
 const HANGUL_FINALS = ["", "k", "k", "ks", "n", "n", "n", "t", "l", "lk", "lm", "lp", "ls", "lt", "lp", "lh", "m", "p", "ps", "t", "t", "ng", "t", "t", "k", "t", "p", "h"];
 
 let pronunciationManuallyEdited = false;
+let activeSpeechAudio = null;
 let activeSpeechUtterance = null;
 let speechRequestId = 0;
 
@@ -1538,44 +1539,84 @@ function setLibrarySortOrder(order) {
 function speakKorean(word) {
   const text = String(word || "").trim();
   if (!text) return;
+  const requestId = ++speechRequestId;
+  if (activeSpeechAudio) {
+    activeSpeechAudio.pause();
+    activeSpeechAudio = null;
+  }
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+
+  const encodedText = encodeURIComponent(text);
+  const onlineSources = [
+    `https://dict.youdao.com/dictvoice?audio=${encodedText}&le=ko`,
+    `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ko&q=${encodedText}`,
+  ];
+  const audio = new Audio();
+  audio.preload = "auto";
+  audio.playsInline = true;
+  activeSpeechAudio = audio;
+  let sourceIndex = -1;
+
+  audio.onended = () => {
+    if (activeSpeechAudio === audio) activeSpeechAudio = null;
+  };
+
+  const playNextOnlineSource = () => {
+    if (requestId !== speechRequestId) return;
+    sourceIndex += 1;
+    if (sourceIndex >= onlineSources.length) {
+      if (activeSpeechAudio === audio) activeSpeechAudio = null;
+      speakKoreanWithDeviceVoice(text, requestId);
+      return;
+    }
+
+    let advanced = false;
+    const advance = () => {
+      if (advanced || requestId !== speechRequestId) return;
+      advanced = true;
+      playNextOnlineSource();
+    };
+    audio.onerror = advance;
+    audio.src = onlineSources[sourceIndex];
+    audio.load();
+    const playPromise = audio.play();
+    if (playPromise?.catch) playPromise.catch(advance);
+  };
+
+  playNextOnlineSource();
+}
+
+function speakKoreanWithDeviceVoice(text, requestId, retryCount = 0) {
+  if (requestId !== speechRequestId) return;
   if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
-    toast("当前设备不支持语音朗读");
+    toast("朗读暂时不可用，请稍后再试");
     return;
   }
 
   const synth = window.speechSynthesis;
-  const requestId = ++speechRequestId;
-  synth.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  const koreanVoice = synth.getVoices().find((voice) => String(voice.lang || "").toLowerCase().startsWith("ko"));
+  utterance.lang = "ko-KR";
+  utterance.rate = 0.9;
+  if (koreanVoice) utterance.voice = koreanVoice;
+  activeSpeechUtterance = utterance;
 
-  const startSpeech = (retryCount = 0) => {
-    if (requestId !== speechRequestId) return;
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    const koreanVoice = synth.getVoices().find((voice) => String(voice.lang || "").toLowerCase().startsWith("ko"));
-    utterance.lang = "ko-KR";
-    utterance.rate = 0.9;
-    if (koreanVoice) utterance.voice = koreanVoice;
-    activeSpeechUtterance = utterance;
-
-    utterance.onend = () => {
-      if (activeSpeechUtterance === utterance) activeSpeechUtterance = null;
-    };
-    utterance.onerror = (event) => {
-      if (requestId !== speechRequestId || ["canceled", "interrupted"].includes(event.error)) return;
-      if (retryCount < 1) {
-        synth.cancel();
-        window.setTimeout(() => startSpeech(retryCount + 1), 120);
-        return;
-      }
-      activeSpeechUtterance = null;
-      toast("朗读暂时不可用，请稍后再试");
-    };
-
-    if (synth.paused) synth.resume();
-    synth.speak(utterance);
+  utterance.onend = () => {
+    if (activeSpeechUtterance === utterance) activeSpeechUtterance = null;
+  };
+  utterance.onerror = (event) => {
+    if (requestId !== speechRequestId || ["canceled", "interrupted"].includes(event.error)) return;
+    if (retryCount < 1) {
+      synth.cancel();
+      window.setTimeout(() => speakKoreanWithDeviceVoice(text, requestId, retryCount + 1), 120);
+      return;
+    }
+    activeSpeechUtterance = null;
+    toast("朗读暂时不可用，请稍后再试");
   };
 
-  window.setTimeout(() => startSpeech(), 60);
+  if (synth.paused) synth.resume();
+  synth.speak(utterance);
 }
 
 function updateAutomaticPronunciation() {

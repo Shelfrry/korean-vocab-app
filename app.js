@@ -16,6 +16,9 @@ const DAY = 24 * 60 * 60 * 1000;
 const MINUTE = 60 * 1000;
 const DAILY_CARD_GOAL = 35;
 const DAILY_CARD_MAX = 35;
+const DAILY_RECENT_CARD_GOAL = 10;
+const DAILY_BACKLOG_CARD_GOAL = DAILY_CARD_GOAL - DAILY_RECENT_CARD_GOAL;
+const RECENT_WORD_WINDOW_DAYS = 3;
 
 const $ = (selector) => document.querySelector(selector);
 const nowIso = () => new Date().toISOString();
@@ -389,9 +392,7 @@ function readDailyDeck() {
 
 function createDailyDeck() {
   const now = nowIso();
-  const cardIds = getDueCardEntries({ includeReviewedToday: true })
-    .slice(0, DAILY_CARD_GOAL)
-    .map(cardKey);
+  const cardIds = selectDailyDeckEntries(getDueCardEntries({ includeReviewedToday: true })).map(cardKey);
   return {
     dateKey: getBeijingDateKey(),
     cardIds,
@@ -401,6 +402,34 @@ function createDailyDeck() {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function selectDailyDeckEntries(dueEntries) {
+  const recentCutoff = Date.now() - RECENT_WORD_WINDOW_DAYS * DAY;
+  const recentEntries = [];
+  const backlogEntries = [];
+
+  dueEntries.forEach((entry) => {
+    const createdAt = new Date(entry.word.createdAt).getTime();
+    const isRecent = Number.isFinite(createdAt) && createdAt >= recentCutoff;
+    (isRecent ? recentEntries : backlogEntries).push(entry);
+  });
+
+  const selected = [
+    ...recentEntries.slice(0, DAILY_RECENT_CARD_GOAL),
+    ...backlogEntries.slice(0, DAILY_BACKLOG_CARD_GOAL),
+  ];
+  const selectedIds = new Set(selected.map(cardKey));
+
+  if (selected.length < DAILY_CARD_GOAL) {
+    selected.push(
+      ...dueEntries
+        .filter((entry) => !selectedIds.has(cardKey(entry)))
+        .slice(0, DAILY_CARD_GOAL - selected.length),
+    );
+  }
+
+  return selected.slice(0, DAILY_CARD_GOAL);
 }
 
 function normalizeDailyDeck(deck) {

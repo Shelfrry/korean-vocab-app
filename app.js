@@ -634,19 +634,16 @@ function getCurrentReviewEntry() {
 function renderKoToZhAnswer(word) {
   return `
     ${renderAnswerRow("释义", word.meaning || "还没有释义")}
-    ${word.partOfSpeech ? renderAnswerRow("词性", displayPartOfSpeech(word.partOfSpeech)) : ""}
-    ${word.forms ? renderAnswerRow("变形 / 派生", word.forms, "ko") : ""}
+    ${renderAnswerRow("词性", displayPartOfSpeech(word.partOfSpeech) || "未标注")}
+    ${renderAnswerRow("备注", word.notes || "暂无备注")}
   `;
 }
 
 function renderZhToKoAnswer(word) {
   return `
     ${renderAnswerRow("韩语词条", word.korean, "ko")}
-    ${word.baseForm ? renderAnswerRow("原形", word.baseForm, "ko") : ""}
-    ${word.exampleKo ? renderAnswerRow("韩语原句", word.exampleKo, "ko") : ""}
-    ${word.forms ? renderAnswerRow("变形 / 派生", word.forms, "ko") : ""}
-    ${word.confusion ? renderAnswerRow("易混点", word.confusion) : ""}
-    ${word.notes ? renderAnswerRow("备注", word.notes) : ""}
+    ${renderAnswerRow("词性", displayPartOfSpeech(word.partOfSpeech) || "未标注")}
+    ${renderAnswerRow("备注", word.notes || "暂无备注")}
   `;
 }
 
